@@ -235,7 +235,7 @@ class Field:
         return self.get_puyo(2, 11) != Puyo.EMPTY
 
     def floors(self):
-        floor_y = [0, 0, 0, 0, 0, 0]
+        floor_y = [self.Y_MAX] * 6
         for x in range(self.X_MAX):
             for y in range(self.Y_MAX):
                 if self.get_puyo(x, y) == Puyo.EMPTY:
@@ -348,8 +348,9 @@ class UpiPlayer:
         self._unfixed_ojama = int(pfen[5])
         self._time_until_fall_ojama = int(pfen[6])
 
-    def go(self, field):
-        pass
+    def go(self):
+        moves = generate_moves(self._position[0], self._tumo_pool[self._position[0].tumo_index])
+        print('bestmove', moves[0].to_upi())
 
     def gameover(self):
         pass

@@ -96,3 +96,10 @@ def test_floors():
     field.init_from_pfen(pfen)
     floors = field.floors()
     assert floors == [2, 0, 0, 0, 0, 0]
+
+def test_floors2():
+    field = upi.Field()
+    pfen = 'rpyrbppyrrbby/yprbryb/////'
+    field.init_from_pfen(pfen)
+    floors = field.floors()
+    assert floors == [13, 7, 0, 0, 0, 0]
