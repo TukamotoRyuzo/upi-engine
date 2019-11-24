@@ -4,33 +4,29 @@ sys.path.append('.')
 import upi
 import numpy as np
 
-def test_field():
+def test_field(zero_field):
     field = upi.Field()
     assert field.X_MAX == 6
     assert field.Y_MAX == 13
-    assert np.array_equal(field.field, np.full((field.X_MAX, field.Y_MAX), upi.Puyo.EMPTY))
+    assert np.array_equal(field.field, zero_field)
 
 def compare_pfen(pfen, answer):
     field = upi.Field()
     field.init_from_pfen(pfen)
     return np.array_equal(field.field, answer)
 
-def zero_field():
-    return np.full((upi.Field.X_MAX, upi.Field.Y_MAX), upi.Puyo.EMPTY)
-
-def test_init_from_pfen_empty():
+def test_init_from_pfen_empty(zero_field):
     pfen = '//////'
-    assert compare_pfen(pfen, zero_field())
+    assert compare_pfen(pfen, zero_field)
 
-def test_init_from_pfen_ry():
+def test_init_from_pfen_ry(zero_field):
     pfen = 'ry//////'
-    answer = zero_field()
+    answer = zero_field
     answer[0, 0] = upi.Puyo.RED
     answer[0, 1] = upi.Puyo.YELLOW
     assert compare_pfen(pfen, answer)
 
-def test_init_from_pfen_kenny():
-    pfen = 'pppypppgpypy/yyygyggbgbbb/gggbybbybyyby/bbbpbyypyppyp/pppbyppgpggpg/yyybbggbbbgbg/'
+def test_init_from_pfen_kenny(kenny):
     e = upi.Puyo.EMPTY
     g = upi.Puyo.GREEN
     b = upi.Puyo.BLUE
@@ -44,48 +40,47 @@ def test_init_from_pfen_kenny():
         [p, p, p, b, y, p, p, g, p, g, g, p, g],
         [y, y, y, b, b, g, g, b, b, b, g, b, g]
     ])
-    assert compare_pfen(pfen, answer)
+    assert compare_pfen(kenny, answer)
 
 # 同じFieldインスタンスを用いて2回連続でinit_from_pfenを呼び出しても正しく初期化されることのテスト。
-def test_init_from_pfen_continuous():
+def test_init_from_pfen_continuous(zero_field):
     field = upi.Field()
     pfen = 'ry//////'
-    answer = zero_field()
+    answer = zero_field.copy()
     answer[0, 0] = upi.Puyo.RED
     answer[0, 1] = upi.Puyo.YELLOW
     field.init_from_pfen(pfen)
     assert np.array_equal(field.field, answer)
     pfen = '//////'
     field.init_from_pfen(pfen)
-    answer = zero_field()
-    assert np.array_equal(field.field, answer)
+    assert np.array_equal(field.field, zero_field)
 
 # http://www.puyop.com/s/BizsHHBizBjGsHjBjGsGGsGIzzytrIjIIjIIjI
-def test_delete_puyo():
+def test_delete_puyo(zero_field, kenny):
     field = upi.Field()
-    field.init_from_pfen('pppypppgpypy/yyygyggbgbbb/gggbybbybyyby/bbbpbyypyppyp/pppbyppgpggpg/yyybbggbbbgbg/')
+    field.init_from_pfen(kenny)
     chain, score = field.delete_puyo()
-    assert np.array_equal(field.field, zero_field())
+    assert np.array_equal(field.field, zero_field)
     assert chain == 19
     assert score == 175080
 
-def test_is_empty():
+def test_is_empty(kenny):
     field = upi.Field()
     field.init_from_pfen('//////')
     assert field.is_empty()
-    field.init_from_pfen('pppypppgpypy/yyygyggbgbbb/gggbybbybyyby/bbbpbyypyppyp/pppbyppgpggpg/yyybbggbbbgbg/')
+    field.init_from_pfen(kenny)
     assert not field.is_empty()
 
-def test_is_death():
+def test_is_death(kenny):
     field = upi.Field()
     field.init_from_pfen('//////')
     assert not field.is_death()
-    field.init_from_pfen('pppypppgpypy/yyygyggbgbbb/gggbybbybyyby/bbbpbyypyppyp/pppbyppgpggpg/yyybbggbbbgbg/')
+    field.init_from_pfen(kenny)
     assert field.is_death()
 
-def test_pretty():
+def test_pretty(kenny):
     field = upi.Field()
-    field.init_from_pfen('pppypppgpypy/yyygyggbgbbb/gggbybbybyyby/bbbpbyypyppyp/pppbyppgpggpg/yyybbggbbbgbg/')
+    field.init_from_pfen(kenny)
     pretty_string = field.pretty()
     answer = 'eeypgg\r\n------\r\nybbypb\r\npbypgg\r\nybypgb\r\npgbypb\r\ngbypgb\r\npgbypg\r\npgbypg\r\npyybyb\r\nygbpbb\r\npygbpy\r\npygbpy\r\npygbpy'
     assert pretty_string == answer

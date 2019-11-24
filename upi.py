@@ -29,7 +29,7 @@ class Puyo(Enum):
         """
         Puyoインスタンスをぷよを表す文字(r|g|b|p|y|o)に変換する。
         """
-        return "ergbpyo"[self.value]
+        return "ergbpyo"[int(self.value)]
 
 class Tumo:
     """
@@ -83,6 +83,10 @@ class Move:
         s2 = str(self.child_sq[0] + 1)
         s3 = 'abcdefghijklm'[self.child_sq[1]]
         return s0 + s1 + s2 + s3
+
+    @staticmethod
+    def none():
+        return Move((0, 0), (0, 0))
 
 class Field:
     X_MAX = 6
@@ -267,11 +271,60 @@ class Position:
         self.ojama_index = 0
         self.fall_bonus = 0
         self.all_clear_flag = False
+        self.rule = Rule()
     
-def generate_moves(pos, tumo):
+    def fall_ojama(self, positions_common):
+        floors = self.field.floors()
+        ojama = min(30, positions_common.future_ojama.fixed_ojama)
+        while ojama >= Field.X_MAX:
+            for x in range(Field.X_MAX):                
+                if floors[x] < Field.Y_MAX:
+                    self.field.set_puyo(x, floors[x], Puyo.OJAMA)
+                    floors[x] += 1
+                ojama -= 1
+                self.ojama_index = self.ojama_index + 1 % 128
+        if ojama > 0:
+            v = list(range(6))
+            for x in range(Field.X_MAX):
+                t = positions_common.tumo_pool[self.ojama_index]
+                r = (t.pivot.value + t.child.value) % 6
+                v[x], v[r] = v[r], v[x]
+                self.ojama_index = self.ojama_index + 1 % 128
+            for x in range(ojama):
+                if floors[v[x]] < Field.Y_MAX:
+                    self.field.set_puyo(v[x], floors[v[x]], Puyo.OJAMA)
+
+    def do_move(self, move, positions_common):
+        tumo = positions_common.tumo_pool[self.tumo_index]
+        rule = positions_common.rule
+        self.tumo_index = (self.tumo_index + 1) % 128
+        p = move.pivot_sq
+        c = move.child_sq
+        self.field.set_puyo(p[0], p[1], tumo.pivot)
+        self.field.set_puyo(c[0], c[1], tumo.child)
+        chain, score = self.field.delete_puyo()
+        if chain > 0:
+            if self.all_clear_flag:
+                score += 70 * 30
+                self.all_clear_flag = False
+            if self.field.is_empty():
+                self.all_clear_flag = True
+            ojama = (score + self.fall_bonus) / 70
+            self.fall_bonus = (score + self.fall_bonus) % 70
+
+        drop_frame = max(12 - p[1], 12 - c[1]) * rule.fall_time
+        frame = drop_frame + max(abs(2 - p[0]), abs(2 - c[0]))
+        + rule.set_time * 2 if move.is_tigiri else rule.set_time
+        + rule.chain_time * chain
+        + rule.next_time
+        if positions_common.future_ojama.time_until_fall_ojama <= frame and positions_common.future_ojama.fixed_ojama > 0:
+            self.fall_ojama(positions_common)
+
+def generate_moves(pos, tumo_pool):
     floors = pos.field.floors()
     start_x, end_x = get_move_range(floors)
-    moves = []    
+    moves = []
+    tumo = tumo_pool[pos.tumo_index]
     for x in range(start_x, end_x):
         y = floors[x]
         y_side = floors[x + 1]
@@ -304,21 +357,34 @@ def get_move_range(floors):
             break
     return (left, right)
 
+def search(pos1, pos2, ojama, depth, frame):
+    if pos1.field.is_death():
+        return Move.none()
+    search_impl(pos1, pos2, ojama, depth, frame, -99999, 99999)
+
+class FutureOjama:
+    def __init__(self):
+        self.fixed_ojama = 0
+        self.unfixed_ojama = 0
+        self.time_until_fall_ojama = 0
+
+class PositionsCommonInfo:
+    def __init__(self):
+        self.tumo_pool = [Tumo(Puyo(i % 4 + 1), Puyo((i + 1) % 4 + 1)) for i in range(128)] # 適当に初期化
+        self.rule = Rule()
+        self.future_ojama = FutureOjama()
+
 class UpiPlayer:
     def __init__(self):
-        self._tumo_pool = []
-        self._rule = Rule()
+        self._common_info = PositionsCommonInfo()        
         self._position = [Position(), Position()]
-        self._fixed_ojama = 0
-        self._unfixed_ojama = 0
-        self._time_until_fall_ojama = 0
-        self._engine_name = "sample_engine"
-        self._version = "1.0"
-        self._author = "Ryuzo Tukamoto"
-    
+
     def upi(self):
-        print("id name", self._engine_name + self._version)
-        print("id author", self._author)
+        engine_name = "sample_engine"
+        version = "1.0"
+        author = "Ryuzo Tukamoto"    
+        print("id name", engine_name + version)
+        print("id author", author)
         print("upiok")
 
     def tumo(self, tumos):
@@ -327,15 +393,15 @@ class UpiPlayer:
     def rule(self, rules):
         for i in range(0, len(rules), 2):
             if rules[i] == "falltime":
-                self._rule.fall_time = int(rules[i + 1])
+                self._common_info.rule.fall_time = int(rules[i + 1])
             elif rules[i] == "chaintime":
-                self._rule.chain_time = int(rules[i + 1])
+                self._common_info.rule.chain_time = int(rules[i + 1])
             elif rules[i] == "settime":
-                self._rule.set_time = int(rules[i + 1])
+                self._common_info.rule.set_time = int(rules[i + 1])
             elif rules[i] == "nexttime":
-                self._rule.next_time = int(rules[i + 1])
+                self._common_info.rule.next_time = int(rules[i + 1])
             elif rules[i] == "autodroptime":
-                self._rule.autodrop_time = int(rules[i + 1])
+                self._common_info.rule.autodrop_time = int(rules[i + 1])
 
     def isready(self):
         print("readyok")
@@ -349,7 +415,7 @@ class UpiPlayer:
         self._time_until_fall_ojama = int(pfen[6])
 
     def go(self):
-        moves = generate_moves(self._position[0], self._tumo_pool[self._position[0].tumo_index])
+        moves = generate_moves(self._position[0], self._tumo_pool)
         print('bestmove', moves[0].to_upi())
 
     def gameover(self):
