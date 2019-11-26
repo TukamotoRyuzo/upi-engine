@@ -188,7 +188,7 @@ class Field:
                 puyo = self.get_puyo(x, y)
                 if puyo == Puyo.EMPTY:
                     break
-                elif not searched_pos[x, y]:
+                elif puyo != Puyo.OJAMA and not searched_pos[x, y]:
                     searching_pos = np.zeros((self.X_MAX, self.Y_MAX), dtype=np.bool)
                     count = self.count_connection(puyo, x, y, searching_pos)
                     searched_pos |= searching_pos

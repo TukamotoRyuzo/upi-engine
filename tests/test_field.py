@@ -64,6 +64,15 @@ def test_delete_puyo(zero_field, kenny):
     assert chain == 19
     assert score == 175080
 
+def test_delete_puyo_ojamaonly(zero_field, kenny):
+    field = upi.Field()
+    field.init_from_pfen('oooo//////')
+    clone = field.field.copy()
+    chain, score = field.delete_puyo()
+    assert np.array_equal(field.field, clone)
+    assert chain == 0
+    assert score == 0
+
 def test_is_empty(kenny):
     field = upi.Field()
     field.init_from_pfen('//////')
