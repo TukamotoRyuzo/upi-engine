@@ -25,8 +25,8 @@ def test_tumo(tumo_pool_string):
     upi_player = upi.UpiPlayer()
     upi_player.tumo(tumo_pool_string)
     for i, t in enumerate(tumo_pool_string):
-        assert upi_player._tumo_pool[i].pivot == upi.Puyo.to_puyo(t[0])
-        assert upi_player._tumo_pool[i].child == upi.Puyo.to_puyo(t[1])
+        assert upi_player.common_info.tumo_pool[i].pivot == upi.Puyo.to_puyo(t[0])
+        assert upi_player.common_info.tumo_pool[i].child == upi.Puyo.to_puyo(t[1])
     
 def test_position():
     upi_player = upi.UpiPlayer()
@@ -34,24 +34,24 @@ def test_position():
     upi_player.position(cmd)
     field = upi.Field()
     field.init_from_pfen(cmd[0])    
-    assert np.array_equal(upi_player._position[0].field.field, field.field)
-    assert upi_player._position[0].tumo_index == int(cmd[1])
+    assert np.array_equal(upi_player.positions[0].field.field, field.field)
+    assert upi_player.positions[0].tumo_index == int(cmd[1])
     field.init_from_pfen(cmd[2])
-    assert np.array_equal(upi_player._position[1].field.field, field.field)
-    assert upi_player._position[1].tumo_index == int(cmd[3])
-    assert upi_player._fixed_ojama == int(cmd[4])
-    assert upi_player._unfixed_ojama == int(cmd[5])
-    assert upi_player._time_until_fall_ojama == int(cmd[6])
+    assert np.array_equal(upi_player.positions[1].field.field, field.field)
+    assert upi_player.positions[1].tumo_index == int(cmd[3])
+    assert upi_player.common_info.future_ojama.fixed_ojama == int(cmd[4])
+    assert upi_player.common_info.future_ojama.unfixed_ojama == int(cmd[5])
+    assert upi_player.common_info.future_ojama.time_until_fall_ojama == int(cmd[6])
 
 def test_rule():
     upi_player = upi.UpiPlayer()
     cmd = ['falltime', '22', 'chaintime', '630', 'settime', '5', 'nexttime', '347', 'autodroptime', '52340']
     upi_player.rule(cmd)
-    assert upi_player._common_info.rule.fall_time == int(cmd[1])
-    assert upi_player._common_info.rule.chain_time == int(cmd[3])
-    assert upi_player._common_info.rule.set_time == int(cmd[5])
-    assert upi_player._common_info.rule.next_time == int(cmd[7])
-    assert upi_player._common_info.rule.autodrop_time == int(cmd[9])
+    assert upi_player.common_info.rule.fall_time == int(cmd[1])
+    assert upi_player.common_info.rule.chain_time == int(cmd[3])
+    assert upi_player.common_info.rule.set_time == int(cmd[5])
+    assert upi_player.common_info.rule.next_time == int(cmd[7])
+    assert upi_player.common_info.rule.autodrop_time == int(cmd[9])
 
 def test_go(capsys, tumo_pool_string):
     upi_player = upi.UpiPlayer()

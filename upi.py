@@ -376,8 +376,8 @@ class PositionsCommonInfo:
 
 class UpiPlayer:
     def __init__(self):
-        self._common_info = PositionsCommonInfo()        
-        self._position = [Position(), Position()]
+        self.common_info = PositionsCommonInfo()        
+        self.positions = [Position(), Position()]
 
     def upi(self):
         engine_name = "sample_engine"
@@ -388,34 +388,34 @@ class UpiPlayer:
         print("upiok")
 
     def tumo(self, tumos):
-        self._tumo_pool = [Tumo(Puyo.to_puyo(t[0]), Puyo.to_puyo(t[1])) for t in tumos]
+        self.common_info.tumo_pool = [Tumo(Puyo.to_puyo(t[0]), Puyo.to_puyo(t[1])) for t in tumos]
   
     def rule(self, rules):
         for i in range(0, len(rules), 2):
             if rules[i] == "falltime":
-                self._common_info.rule.fall_time = int(rules[i + 1])
+                self.common_info.rule.fall_time = int(rules[i + 1])
             elif rules[i] == "chaintime":
-                self._common_info.rule.chain_time = int(rules[i + 1])
+                self.common_info.rule.chain_time = int(rules[i + 1])
             elif rules[i] == "settime":
-                self._common_info.rule.set_time = int(rules[i + 1])
+                self.common_info.rule.set_time = int(rules[i + 1])
             elif rules[i] == "nexttime":
-                self._common_info.rule.next_time = int(rules[i + 1])
+                self.common_info.rule.next_time = int(rules[i + 1])
             elif rules[i] == "autodroptime":
-                self._common_info.rule.autodrop_time = int(rules[i + 1])
+                self.common_info.rule.autodrop_time = int(rules[i + 1])
 
     def isready(self):
         print("readyok")
 
     def position(self, pfen):
         for i in range(2):
-            self._position[i].field.init_from_pfen(pfen[i * 2])            
-            self._position[i].tumo_index = int(pfen[i * 2 + 1])
-        self._fixed_ojama = int(pfen[4])
-        self._unfixed_ojama = int(pfen[5])
-        self._time_until_fall_ojama = int(pfen[6])
+            self.positions[i].field.init_from_pfen(pfen[i * 2])            
+            self.positions[i].tumo_index = int(pfen[i * 2 + 1])
+        self.common_info.future_ojama.fixed_ojama = int(pfen[4])
+        self.common_info.future_ojama.unfixed_ojama = int(pfen[5])
+        self.common_info.future_ojama.time_until_fall_ojama = int(pfen[6])
 
     def go(self):
-        moves = generate_moves(self._position[0], self._tumo_pool)
+        moves = generate_moves(self.positions[0], self.common_info.tumo_pool)
         print('bestmove', moves[0].to_upi())
 
     def gameover(self):
