@@ -72,12 +72,27 @@ class Rule:
         self.autodrop_time = 50
 
 class Move:
+    """
+    指し手。ツモを盤面に配置するための情報。
+
+    Attributes
+    ----------
+    pivot_sq : tuple(int, int)
+        軸ぷよの座標。
+    child_sq : tuple(int, int)
+        子ぷよの座標。
+    is_tigiri : bool
+        この着手がちぎりかどうか。軸ぷよのy座標 != 子ぷよのy座標のときはちぎりである。
+    """
     def __init__(self, pivot_sq, child_sq, is_tigiri=False):
         self.pivot_sq = pivot_sq
         self.child_sq = child_sq
         self.is_tigiri = is_tigiri
 
     def to_upi(self):
+        """
+        指し手をupi文字列に変換する。
+        """
         s0 = str(self.pivot_sq[0] + 1)
         s1 = 'abcdefghijklm'[self.pivot_sq[1]]
         s2 = str(self.child_sq[0] + 1)
@@ -89,24 +104,16 @@ class Move:
         return Move((0, 0), (0, 0))
 
 class Field:
+    """
+    盤面。ツモを配置する空間。
+
+    Attributes
+    ----------
+    field : np.ndarray
+        6行13列のPuyo配列。
+    """
     X_MAX = 6
     Y_MAX = 13    
-
-    # 得点＝Σ{Ａi×（Ｂi＋Ｃi＋Ｄi）}…①
-    # iは連鎖数　連鎖ごとに計算が行われる
-    # 変数Ａ～Ｄは以下で表される　
-    # Ａ＝　消したぷよの数　×１０
-    # Ｂ＝　連鎖ボーナス　
-    # Ｃ＝  コネクト数　
-    # Ｄ＝　同時消し色数ボーナス　
-    # 連鎖ボーナス
-    CHAIN_BONUS = (0, 8, 16, 32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448, 480, 512)
-
-    # 連結ボーナス
-    CONNECT_BONUS = (0, 2, 3, 4, 5, 6, 7, 10)
-
-    # 同時消し色数ボーナス
-    COLOR_BONUS = (0, 3, 6, 12, 24)
 
     def __init__(self):
         self.field = np.full((self.X_MAX, self.Y_MAX), Puyo.EMPTY)
@@ -139,6 +146,9 @@ class Field:
 
     @staticmethod
     def is_in_field(x, y):
+        """
+        座標がフィールドの見えている範囲内にあるかどうかを判定する。
+        """
         return x >= 0 and x < Field.X_MAX and y >= 0 and y < Field.Y_MAX - 1
 
     def pretty_print(self):
@@ -157,6 +167,9 @@ class Field:
         print('')
         
     def pretty(self):
+        """
+        Fieldインスタンスを見やすい文字列に変換する。
+        """
         result = ''
         for y in reversed(range(self.Y_MAX)):
             for x in range(self.X_MAX):
@@ -167,9 +180,15 @@ class Field:
         return result[:-2]
 
     def is_empty(self):
+        """
+        フィールドがすべて空かを判定する。
+        """
         return np.any(self.field) == Puyo.EMPTY
 
     def count_connection(self, puyo, x, y, searched):
+        """
+        指定された座標にあるぷよの連結数を計算する。
+        """
         if not self.is_in_field(x, y) or searched[x, y] or self.get_puyo(x, y) != puyo:
             return 0     
         searched[x, y] = True
@@ -178,7 +197,25 @@ class Field:
                 self.count_connection(puyo, x, y - 1, searched) +
                 self.count_connection(puyo, x, y + 1, searched) + 1)
 
-    def _delete_puyo_impl(self, chain):
+    def calc_delete_puyo(self, chain_num):
+        """
+        4つ以上つながっている場所と、この連鎖でのスコアを計算する。
+
+        Parameters
+        ----------
+        chain_num : int
+            現盤面での連鎖数。初めての連鎖なら0。
+
+        Returns
+        -------
+            score : int
+                この連鎖でのスコア。
+            delete_pos : np.ndarray
+                消える場所がTrueになっているarray。
+        """   
+        CHAIN_BONUS = (0, 8, 16, 32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448, 480, 512)
+        CONNECT_BONUS = (0, 2, 3, 4, 5, 6, 7, 10)
+        COLOR_BONUS = (0, 3, 6, 12, 24)
         searched_pos = np.zeros((self.X_MAX, self.Y_MAX), dtype=np.bool)
         delete_pos = np.zeros((self.X_MAX, self.Y_MAX), dtype=np.bool)
         colors = {}
@@ -195,15 +232,21 @@ class Field:
                     if count >= 4:                        
                         delete_pos |= searching_pos
                         colors[puyo] = 1
-                        score += self.CONNECT_BONUS[(count - 4) % 8]
+                        score += CONNECT_BONUS[(count - 4) % 8]
         if len(colors) > 0:
-            score += self.CHAIN_BONUS[chain] + self.COLOR_BONUS[len(colors) - 1]
+            score += CHAIN_BONUS[chain_num] + COLOR_BONUS[len(colors) - 1]
             score = np.count_nonzero(delete_pos) * max(score, 1) * 10
-            self.delete_impl(delete_pos)
-            self.slide()
-        return score
+        return score, delete_pos
 
-    def delete_impl(self, delete_pos):
+    def delete_puyo(self, delete_pos):
+        """
+        引数で与えられた場所を空にする。消えるぷよの上下左右1マス以内にお邪魔ぷよがあれば消す。
+        
+        Parameters
+        ----------
+        delete_pos : np.ndarray
+            消える場所がTrueになっているarray。
+        """
         pos = np.where(delete_pos)
         for x, y in zip(pos[0], pos[1]):
             self.set_puyo(x, y, Puyo.EMPTY)
@@ -212,6 +255,9 @@ class Field:
                     self.set_puyo(x + dx, y + dy, Puyo.EMPTY)
 
     def slide(self):
+        """
+        ぷよを消した後、落下するぷよがあれば着地するまで落下させる。
+        """
         for x in range(self.X_MAX):
             for y in range(self.Y_MAX):
                 if self.get_puyo(x, y) == Puyo.EMPTY:
@@ -223,22 +269,45 @@ class Field:
                     self.set_puyo(x, top_y, self.get_puyo(x, y))
                     self.set_puyo(x, y, Puyo.EMPTY)
 
-    def delete_puyo(self):
-        chain = 0
+    def chain(self):
+        """
+        連鎖を最後まで行う。
+
+        Returns
+        -------
+        chain_num : int
+            連鎖数。
+        score_num : int
+            この連鎖のスコア。
+        """
+        chain_num = 0
         score_sum = 0
         while True:
-            score = self._delete_puyo_impl(chain)
+            score, delete_pos = self.calc_delete_puyo(chain_num)
             if score == 0:
                 break
             else:
-                chain += 1
+                self.delete_puyo(delete_pos)
+                self.slide()
+                chain_num += 1
                 score_sum += score
-        return (chain, score_sum)
+        return (chain_num, score_sum)
 
     def is_death(self):
+        """
+        死んでいるフィールドかを判定する。
+        """
         return self.get_puyo(2, 11) != Puyo.EMPTY
 
     def floors(self):
+        """
+        床座標を返す。
+
+        Returns
+        ------
+        floor_y : list
+            列ごとの床座標。何もないフィールドなら、[0, 0, 0, 0, 0, 0]。
+        """
         floor_y = [self.Y_MAX] * 6
         for x in range(self.X_MAX):
             for y in range(self.Y_MAX):
@@ -264,7 +333,6 @@ class Position:
     all_clear_flag : bool
         全消しフラグ。
     """
-
     def __init__(self):
         self.field = Field()
         self.tumo_index = 0
@@ -274,16 +342,23 @@ class Position:
         self.rule = Rule()
     
     def fall_ojama(self, positions_common):
+        """
+        確定予告ぷよをおじゃまぷよとして盤面に配置する。
+        """
         floors = self.field.floors()
         ojama = min(30, positions_common.future_ojama.fixed_ojama)
+        # 6個以上降る場合は、まず6の倍数個降らせる。
         while ojama >= Field.X_MAX:
-            for x in range(Field.X_MAX):                
+            for x in range(Field.X_MAX):
                 if floors[x] < Field.Y_MAX:
                     self.field.set_puyo(x, floors[x], Puyo.OJAMA)
                     floors[x] += 1
                 ojama -= 1
                 self.ojama_index = self.ojama_index + 1 % 128
+        # ここまで来ると確定予告ぷよは6個未満になっているはず。
+        assert ojama < 6
         if ojama > 0:
+            # サーバと同じロジックでお邪魔ぷよが降る場所を決める。
             v = list(range(6))
             for x in range(Field.X_MAX):
                 t = positions_common.tumo_pool[self.ojama_index]
@@ -295,30 +370,54 @@ class Position:
                     self.field.set_puyo(v[x], floors[v[x]], Puyo.OJAMA)
 
     def do_move(self, move, positions_common):
+        """
+        指し手に応じて盤面を次の状態に進める。着手→連鎖→お邪魔ぷよ落下までを行う。
+
+        Parameters
+        ----------
+        move : Move
+            指し手。
+        positions_common : PositionsCommonInfo
+            配ツモ、ルール、予告ぷよ。
+        """
         tumo = positions_common.tumo_pool[self.tumo_index]
         rule = positions_common.rule
+        future_ojama = positions_common.future_ojama
         self.tumo_index = (self.tumo_index + 1) % 128
         p = move.pivot_sq
         c = move.child_sq
         self.field.set_puyo(p[0], p[1], tumo.pivot)
         self.field.set_puyo(c[0], c[1], tumo.child)
-        chain, score = self.field.delete_puyo()
-        if chain > 0:
+        chain_num, score = self.field.chain()
+        if chain_num > 0:
             if self.all_clear_flag:
                 score += 70 * 30
                 self.all_clear_flag = False
             if self.field.is_empty():
                 self.all_clear_flag = True
-            ojama = (score + self.fall_bonus) / 70
-            self.fall_bonus = (score + self.fall_bonus) % 70
-
+            score += self.fall_bonus
+            ojama = score / 70
+            self.fall_bonus = score % 70
+            # おじゃまぷよ相殺。相殺しきれば相手の未確定予告ぷよとして返す。
+            if future_ojama.fixed_ojama > 0:
+                future_ojama.fixed_ojama -= ojama
+                if future_ojama.fixed_ojama < 0:
+                    future_ojama.unfixed_ojama += future_ojama.fixed_ojama
+                    future_ojama.fixed_ojama = 0            
         drop_frame = max(12 - p[1], 12 - c[1]) * rule.fall_time
-        frame = drop_frame + max(abs(2 - p[0]), abs(2 - c[0]))
-        + rule.set_time * 2 if move.is_tigiri else rule.set_time
-        + rule.chain_time * chain
-        + rule.next_time
-        if positions_common.future_ojama.time_until_fall_ojama <= frame and positions_common.future_ojama.fixed_ojama > 0:
+        frame = (drop_frame + max(abs(2 - p[0]), abs(2 - c[0]))
+                + rule.set_time * 2 if move.is_tigiri else rule.set_time
+                + rule.chain_time * chain_num
+                + rule.next_time)
+        if future_ojama.unfixed_ojama > 0:
+            future_ojama.time_until_fall_ojama -= frame
+            if future_ojama.time_until_fall_ojama <= 0:
+                future_ojama.fixed_ojama += future_ojama.unfixed_ojama
+                future_ojama.unfixed_ojama = 0
+                future_ojama.time_until_fall_ojama = 0
+        if future_ojama.fixed_ojama > 0:
             self.fall_ojama(positions_common)
+
 
 def generate_moves(pos, tumo_pool):
     floors = pos.field.floors()

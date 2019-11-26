@@ -56,21 +56,21 @@ def test_init_from_pfen_continuous(zero_field):
     assert np.array_equal(field.field, zero_field)
 
 # http://www.puyop.com/s/BizsHHBizBjGsHjBjGsGGsGIzzytrIjIIjIIjI
-def test_delete_puyo(zero_field, kenny):
+def test_chain(zero_field, kenny):
     field = upi.Field()
     field.init_from_pfen(kenny)
-    chain, score = field.delete_puyo()
+    chain_num, score = field.chain()
     assert np.array_equal(field.field, zero_field)
-    assert chain == 19
+    assert chain_num == 19
     assert score == 175080
 
-def test_delete_puyo_ojamaonly(zero_field, kenny):
+def test_chain_ojamaonly(zero_field, kenny):
     field = upi.Field()
     field.init_from_pfen('oooo//////')
     clone = field.field.copy()
-    chain, score = field.delete_puyo()
+    chain_num, score = field.chain()
     assert np.array_equal(field.field, clone)
-    assert chain == 0
+    assert chain_num == 0
     assert score == 0
 
 def test_is_empty(kenny):
