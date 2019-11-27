@@ -657,6 +657,7 @@ class UpiPlayer:
         print('bestmove', move.to_upi())
 
     def gameover(self):
+        # 特に何もしない
         pass
 
 if __name__ == "__main__":
@@ -665,12 +666,9 @@ if __name__ == "__main__":
     while token != "quit":
         cmd = input().split(' ')
         token = cmd[0]
-        
-        if token == "quit" or token == "stop" or token == "gameover":
-            pass
-
+                
         # UPIエンジンとして認識されるために必要なコマンド
-        elif token == "upi":
+        if token == "upi":
             upi.upi()
 
         # 今回のゲームで使うツモ128個
