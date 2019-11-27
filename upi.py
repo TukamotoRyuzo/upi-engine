@@ -1,5 +1,6 @@
 from enum import Enum
 import numpy as np
+import copy
 
 class Puyo(Enum):
     """
@@ -396,14 +397,17 @@ class Position:
             if self.field.is_empty():
                 self.all_clear_flag = True
             score += self.fall_bonus
-            ojama = score / 70
+            ojama = int(score / 70)
             self.fall_bonus = score % 70
             # おじゃまぷよ相殺。相殺しきれば相手の未確定予告ぷよとして返す。
             if future_ojama.fixed_ojama > 0:
                 future_ojama.fixed_ojama -= ojama
                 if future_ojama.fixed_ojama < 0:
                     future_ojama.unfixed_ojama += future_ojama.fixed_ojama
-                    future_ojama.fixed_ojama = 0            
+                    future_ojama.fixed_ojama = 0
+            else:
+                future_ojama.unfixed_ojama -= ojama
+
         drop_frame = max(12 - p[1], 12 - c[1]) * rule.fall_time
         frame = (drop_frame + max(abs(2 - p[0]), abs(2 - c[0]))
                 + rule.set_time * 2 if move.is_tigiri else rule.set_time
@@ -414,7 +418,7 @@ class Position:
             if future_ojama.time_until_fall_ojama <= 0:
                 future_ojama.fixed_ojama += future_ojama.unfixed_ojama
                 future_ojama.unfixed_ojama = 0
-                future_ojama.time_until_fall_ojama = 0
+                future_ojama.time_until_fall_ojama = frame
         if future_ojama.fixed_ojama > 0:
             self.fall_ojama(positions_common)
 
@@ -456,10 +460,38 @@ def get_move_range(floors):
             break
     return (left, right)
 
-def search(pos1, pos2, ojama, depth, frame):
+def search(pos1, pos2, positions_common, depth):
     if pos1.field.is_death():
         return Move.none()
-    search_impl(pos1, pos2, ojama, depth, frame, -99999, 99999)
+    moves = generate_moves(pos1, positions_common.tumo_pool)
+    score, move = search_impl(pos1, pos2, positions_common, depth)
+    if move.to_upi() == Move.none().to_upi():
+        return moves[0]
+    return move
+
+def search_impl(pos1, pos2, positions_common, depth):
+    if depth == 0:
+        return evaluate(pos1, positions_common), Move.none()
+    if pos1.field.is_death():
+        return -999999, Move.none()
+    moves = generate_moves(pos1, positions_common.tumo_pool)
+    best_score = -999999
+    best_move = Move.none()
+    for move in moves:
+        pos = copy.deepcopy(pos1)
+        com = copy.copy(positions_common)
+        com.future_ojama = copy.deepcopy(positions_common.future_ojama)
+        pos.do_move(move, com)
+        score, _ = search_impl(pos, pos2, com, depth - 1)
+        if score > best_score:
+            best_score = score
+            best_move = move
+    return best_score, best_move
+
+def evaluate(pos, positions_common):
+    if pos.field.is_death():
+        return -999999
+    return -(positions_common.future_ojama.fixed_ojama + positions_common.future_ojama.unfixed_ojama)
 
 class FutureOjama:
     def __init__(self):
@@ -514,8 +546,8 @@ class UpiPlayer:
         self.common_info.future_ojama.time_until_fall_ojama = int(pfen[6])
 
     def go(self):
-        moves = generate_moves(self.positions[0], self.common_info.tumo_pool)
-        print('bestmove', moves[0].to_upi())
+        move = search(self.positions[0], self.positions[1], self.common_info, 2)
+        print('bestmove', move.to_upi())
 
     def gameover(self):
         pass
