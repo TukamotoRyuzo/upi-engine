@@ -47,7 +47,6 @@ class Tumo:
         self.pivot = c0
         self.child = c1
 
-
 class Rule:
     """
     対戦ルールを表すためのクラス。
@@ -110,7 +109,7 @@ class Field:
 
     Attributes
     ----------
-    field : np.ndarray
+    field : np.ndarray(Puyo)
         6行13列のPuyo配列。
     """
     X_MAX = 6
@@ -211,7 +210,7 @@ class Field:
         -------
             score : int
                 この連鎖でのスコア。
-            delete_pos : np.ndarray
+            delete_pos : np.ndarray(np.bool)
                 消える場所がTrueになっているarray。
         """   
         CHAIN_BONUS = (0, 8, 16, 32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448, 480, 512)
@@ -245,7 +244,7 @@ class Field:
         
         Parameters
         ----------
-        delete_pos : np.ndarray
+        delete_pos : np.ndarray(np.bool)
             消える場所がTrueになっているarray。
         """
         pos = np.where(delete_pos)
@@ -306,7 +305,7 @@ class Field:
 
         Returns
         ------
-        floor_y : list
+        floor_y : list(int)
             列ごとの床座標。何もないフィールドなら、[0, 0, 0, 0, 0, 0]。
         """
         floor_y = [self.Y_MAX] * 6
@@ -422,8 +421,58 @@ class Position:
         if future_ojama.fixed_ojama > 0:
             self.fall_ojama(positions_common)
 
+class FutureOjama:
+    """
+    予告ぷよ。
+
+    Attributes
+    ----------
+    fixed_ojama : int
+        確定予告ぷよ。着手を行ったときに降ることが確定している。
+    unfixed_ojama : int
+        未確定予告ぷよ。着手を行っても降らない。
+    time_until_fall_ojama : int
+        未確定予告ぷよが確定予告ぷよになるまでのフレーム数。
+    """
+    def __init__(self):
+        self.fixed_ojama = 0
+        self.unfixed_ojama = 0
+        self.time_until_fall_ojama = 0
+
+class PositionsCommonInfo:
+    """
+    1Pの局面と2Pの局面で共通しているデータ。
+
+    Attributes
+    ----------
+    tumo_pool : list(Tumo)
+        配ツモ。
+    rule : Rule
+        ルール。
+    future_ojama : FutureOjama
+        予告ぷよ。
+    """
+    def __init__(self):
+        self.tumo_pool = [Tumo(Puyo(i % 4 + 1), Puyo((i + 1) % 4 + 1)) for i in range(128)] # 適当に初期化
+        self.rule = Rule()
+        self.future_ojama = FutureOjama()
 
 def generate_moves(pos, tumo_pool):
+    """
+    この局面で着手可能な指し手のリストを生成する。
+
+    Parameters
+    ----------
+    pos : Position
+        局面。
+    tumo_pool : list(Tumo)
+        配ツモ。
+    
+    Returns
+    -------
+    moves : list(Move)
+        着手可能な指し手のリスト。
+    """
     floors = pos.field.floors()
     start_x, end_x = get_move_range(floors)
     moves = []
@@ -448,6 +497,21 @@ def generate_moves(pos, tumo_pool):
     return moves
 
 def get_move_range(floors):
+    """
+    何列目から何列目までが着手可能なのかを返す。
+
+    Parameters
+    ----------
+    floors : list(int)
+        床座標。
+    
+    Returns
+    -------
+    left : int
+        着手可能なx座標の最小値。
+    right : int
+        着手可能なx座標の最大値。
+    """
     left = 0
     right = 5
     for x in reversed(range(2)):
@@ -461,6 +525,25 @@ def get_move_range(floors):
     return (left, right)
 
 def search(pos1, pos2, positions_common, depth):
+    """
+    この局面での最善手を探索する。
+
+    Parameters
+    ----------
+    pos1 : Position
+        1Pの局面。
+    pos2 : Position
+        2Pの局面。
+    positions_common : PositionsCommonInfo
+        1Pと2Pで共通のデータ。
+    depth : int
+        探索深さ。
+    
+    Returns
+    -------
+    move : Move
+        探索した結果の指し手。
+    """
     if pos1.field.is_death():
         return Move.none()
     moves = generate_moves(pos1, positions_common.tumo_pool)
@@ -470,6 +553,27 @@ def search(pos1, pos2, positions_common, depth):
     return move
 
 def search_impl(pos1, pos2, positions_common, depth):
+    """
+    evaluateの返り値が最も大きくなる手を探索する。
+
+    Parameters
+    ----------
+    pos1 : Position
+        1Pの局面。
+    pos2 : Position
+        2Pの局面。
+    positions_common : PositionsCommonInfo
+        1Pと2Pで共通のデータ。
+    depth : int
+        探索深さ。
+    
+    Returns
+    -------
+    best_score : int
+        最も大きかったevaluateの返り値。
+    best_move : Move
+        best_scoreを得ることができる指し手。
+    """
     if depth == 0:
         return evaluate(pos1, positions_common), Move.none()
     if pos1.field.is_death():
@@ -489,21 +593,24 @@ def search_impl(pos1, pos2, positions_common, depth):
     return best_score, best_move
 
 def evaluate(pos, positions_common):
+    """
+    局面を評価する。単純に、お邪魔ぷよの数で判定する。
+
+    Parameters
+    ----------
+    pos : Position
+        評価する局面。
+    positions_common : PositionsCommonInfo
+        共通データ。お邪魔ぷよを含む。
+    
+    Returns
+    -------
+    eval : int
+        局面のスコア。今のところお邪魔ぷよの数。相手に降らせる数が多いほどハイスコア。
+    """
     if pos.field.is_death():
         return -999999
     return -(positions_common.future_ojama.fixed_ojama + positions_common.future_ojama.unfixed_ojama)
-
-class FutureOjama:
-    def __init__(self):
-        self.fixed_ojama = 0
-        self.unfixed_ojama = 0
-        self.time_until_fall_ojama = 0
-
-class PositionsCommonInfo:
-    def __init__(self):
-        self.tumo_pool = [Tumo(Puyo(i % 4 + 1), Puyo((i + 1) % 4 + 1)) for i in range(128)] # 適当に初期化
-        self.rule = Rule()
-        self.future_ojama = FutureOjama()
 
 class UpiPlayer:
     def __init__(self):
