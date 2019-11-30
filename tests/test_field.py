@@ -64,7 +64,7 @@ def test_chain(zero_field, kenny):
     assert chain_num == 19
     assert score == 175080
 
-def test_chain_ojamaonly(zero_field, kenny):
+def test_chain_ojamaonly():
     field = upi.Field()
     field.init_from_pfen('oooo//////')
     clone = field.field.copy()
@@ -72,6 +72,14 @@ def test_chain_ojamaonly(zero_field, kenny):
     assert np.array_equal(field.field, clone)
     assert chain_num == 0
     assert score == 0
+
+def test_chain_samecoloronly(zero_field):
+    field = upi.Field()
+    field.init_from_pfen('rrrrrrrrrrrr/rrrrrrrrrrrr/rrrrrrrrrrrr/rrrrrrrrrrrr/rrrrrrrrrrrr/rrrrrrrrrrrr/')
+    chain_num, score = field.chain()
+    assert np.array_equal(field.field, zero_field)
+    assert chain_num == 1
+    assert score == 7200
 
 def test_is_empty(kenny):
     field = upi.Field()

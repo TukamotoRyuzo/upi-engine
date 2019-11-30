@@ -232,7 +232,7 @@ class Field:
                     if count >= 4:                        
                         delete_pos |= searching_pos
                         colors[puyo] = 1
-                        score += CONNECT_BONUS[(count - 4) % 8]
+                        score += CONNECT_BONUS[min(count, 11) - 4]
         if len(colors) > 0:
             score += CHAIN_BONUS[chain_num] + COLOR_BONUS[len(colors) - 1]
             score = np.count_nonzero(delete_pos) * max(score, 1) * 10
