@@ -23,11 +23,17 @@ def test_generate_moves(tumo_pool):
     pos = upi.Position()
     moves = upi.generate_moves(pos, tumo_pool)
     assert len(moves) == 22
-
+    for i in range(21):
+        for j in range(i + 1, 22):
+            assert moves[i].to_upi() != moves[j].to_upi()
+    
 def test_generate_moves_samecolor(tumo_pool_all_red):
     pos = upi.Position()
     moves = upi.generate_moves(pos, tumo_pool_all_red)
     assert len(moves) == 11
+    for i in range(10):
+        for j in range(i + 1, 11):
+            assert moves[i].to_upi() != moves[j].to_upi()
 
 def test_do_move():
     pos = upi.Position()
