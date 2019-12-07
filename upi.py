@@ -488,12 +488,12 @@ def generate_moves(pos, tumo_pool):
         moves.append(Move(dest, dest_side, is_tigiri))
         if tumo.pivot != tumo.child:
             moves.append(Move(dest_up, dest, False))
-            moves.append(Move(dest_side, dest, is_tigiri))                
+            moves.append(Move(dest_side, dest, is_tigiri))      
     dest = (end_x, floors[end_x])
     dest_up = (end_x, floors[end_x] + 1)
     moves.append(Move(dest, dest_up, False))
     if tumo.pivot != tumo.child:
-        moves.append(Move(dest, dest_up, False))
+        moves.append(Move(dest_up, dest, False))
     return moves
 
 def get_move_range(floors):
