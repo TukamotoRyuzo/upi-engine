@@ -13,7 +13,7 @@ class Puyo(Enum):
     PURPLE = 4
     YELLOW = 5
     OJAMA = 6
-    
+
     @staticmethod
     def to_puyo(character):
         """
@@ -113,11 +113,12 @@ class Field:
         6行13列のPuyo配列。
     """
     X_MAX = 6
-    Y_MAX = 13    
+    Y_MAX = 13
+
 
     def __init__(self):
         self.field = np.full((self.X_MAX, self.Y_MAX), Puyo.EMPTY)
-    
+
     def init_from_pfen(self, pfen):
         """
         pfen文字列からぷよ配列を初期化する。
@@ -140,7 +141,7 @@ class Field:
 
     def set_puyo(self, x, y, col):
         self.field[x, y] = col
-    
+
     def get_puyo(self, x, y):
         return self.field[x, y]
 
@@ -156,16 +157,16 @@ class Field:
         Fieldインスタンスを色付きで見やすく標準出力に表示する。
         """
         color = ('\033[30m', '\033[31m', '\033[32m', '\033[34m', '\033[35m', '\033[33m', '\033[37m')
-        END = '\033[0m'        
+        END = '\033[0m'
         pretty_string = self.pretty()
         for p in pretty_string:
             id = "ergbpyo".find(p)
             if id >= 0:
                 print(color[id] + p + END, end='')
             else:
-                print(p, end='')                
+                print(p, end='')
         print('')
-        
+
     def pretty(self):
         """
         Fieldインスタンスを見やすい文字列に変換する。
@@ -190,7 +191,7 @@ class Field:
         指定された座標にあるぷよの連結数を計算する。
         """
         if not self.is_in_field(x, y) or searched[x, y] or self.get_puyo(x, y) != puyo:
-            return 0     
+            return 0
         searched[x, y] = True
         return (self.count_connection(puyo, x - 1, y, searched) +
                 self.count_connection(puyo, x + 1, y, searched) +
@@ -212,7 +213,7 @@ class Field:
                 この連鎖でのスコア。
             delete_pos : np.ndarray(np.bool)
                 消える場所がTrueになっているarray。
-        """   
+        """
         CHAIN_BONUS = (0, 8, 16, 32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448, 480, 512)
         CONNECT_BONUS = (0, 2, 3, 4, 5, 6, 7, 10)
         COLOR_BONUS = (0, 3, 6, 12, 24)
@@ -229,7 +230,7 @@ class Field:
                     searching_pos = np.zeros((self.X_MAX, self.Y_MAX), dtype=np.bool)
                     count = self.count_connection(puyo, x, y, searching_pos)
                     searched_pos |= searching_pos
-                    if count >= 4:                        
+                    if count >= 4:
                         delete_pos |= searching_pos
                         colors[puyo] = 1
                         score += CONNECT_BONUS[min(count, 11) - 4]
@@ -241,7 +242,7 @@ class Field:
     def delete_puyo(self, delete_pos):
         """
         引数で与えられた場所を空にする。消えるぷよの上下左右1マス以内にお邪魔ぷよがあれば消す。
-        
+
         Parameters
         ----------
         delete_pos : np.ndarray(np.bool)
@@ -265,7 +266,7 @@ class Field:
                     while y < self.Y_MAX and self.get_puyo(x, y) == Puyo.EMPTY:
                         y += 1
                     if y >= self.Y_MAX:
-                        break                    
+                        break
                     self.set_puyo(x, top_y, self.get_puyo(x, y))
                     self.set_puyo(x, y, Puyo.EMPTY)
 
@@ -340,13 +341,14 @@ class Position:
         self.fall_bonus = 0
         self.all_clear_flag = False
         self.rule = Rule()
-    
+
     def fall_ojama(self, positions_common):
         """
         確定予告ぷよをおじゃまぷよとして盤面に配置する。
         """
         floors = self.field.floors()
         ojama = min(30, positions_common.future_ojama.fixed_ojama)
+        positions_common.future_ojama.fixed_ojama -= ojama
         # 6個以上降る場合は、まず6の倍数個降らせる。
         while ojama >= Field.X_MAX:
             for x in range(Field.X_MAX):
@@ -389,6 +391,13 @@ class Position:
         self.field.set_puyo(p[0], p[1], tumo.pivot)
         self.field.set_puyo(c[0], c[1], tumo.child)
         chain_num, score = self.field.chain()
+        # 着手にかかるフレーム数を計算
+        drop_frame = max(12 - p[1], 12 - c[1]) * rule.fall_time
+        frame = (drop_frame + max(abs(2 - p[0]), abs(2 - c[0]))
+                + rule.set_time * 2 if move.is_tigiri else rule.set_time
+                + rule.chain_time * chain_num
+                + rule.next_time)
+        ojama = 0
         if chain_num > 0:
             if self.all_clear_flag:
                 score += 70 * 30
@@ -396,28 +405,9 @@ class Position:
             if self.field.is_empty():
                 self.all_clear_flag = True
             score += self.fall_bonus
-            ojama = int(score / 70)
+            ojama = score // 70
             self.fall_bonus = score % 70
-            # おじゃまぷよ相殺。相殺しきれば相手の未確定予告ぷよとして返す。
-            if future_ojama.fixed_ojama > 0:
-                future_ojama.fixed_ojama -= ojama
-                if future_ojama.fixed_ojama < 0:
-                    future_ojama.unfixed_ojama += future_ojama.fixed_ojama
-                    future_ojama.fixed_ojama = 0
-            else:
-                future_ojama.unfixed_ojama -= ojama
-
-        drop_frame = max(12 - p[1], 12 - c[1]) * rule.fall_time
-        frame = (drop_frame + max(abs(2 - p[0]), abs(2 - c[0]))
-                + rule.set_time * 2 if move.is_tigiri else rule.set_time
-                + rule.chain_time * chain_num
-                + rule.next_time)
-        if future_ojama.unfixed_ojama > 0:
-            future_ojama.time_until_fall_ojama -= frame
-            if future_ojama.time_until_fall_ojama <= 0:
-                future_ojama.fixed_ojama += future_ojama.unfixed_ojama
-                future_ojama.unfixed_ojama = 0
-                future_ojama.time_until_fall_ojama = frame
+        future_ojama.offset(ojama, frame)
         if future_ojama.fixed_ojama > 0:
             self.fall_ojama(positions_common)
 
@@ -439,6 +429,37 @@ class FutureOjama:
         self.unfixed_ojama = 0
         self.time_until_fall_ojama = 0
 
+    def offset(self, ojama, frame):
+        """
+        相殺を行う。
+
+        Parameters
+        ----------
+        ojama : int
+            着手によって発生したお邪魔ぷよの個数。
+        frame : int
+            着手にかかったフレーム数。
+        """
+        # おじゃまぷよ相殺。
+        if self.fixed_ojama > 0:
+            self.fixed_ojama -= ojama
+            if self.fixed_ojama < 0:
+                self.unfixed_ojama += self.fixed_ojama
+                self.fixed_ojama = 0
+                self.time_until_fall_ojama = frame
+        else:
+            self.unfixed_ojama -= ojama
+            if self.unfixed_ojama < 0:
+                self.time_until_fall_ojama = frame
+
+        # 着手を行ったフレーム数に応じて、未確定予告ぷよを予告ぷよに変える。
+        if self.unfixed_ojama > 0:
+            self.time_until_fall_ojama -= frame
+            if self.time_until_fall_ojama <= 0:
+                self.fixed_ojama += self.unfixed_ojama
+                self.unfixed_ojama = 0
+                self.time_until_fall_ojama = 0
+
 class PositionsCommonInfo:
     """
     1Pの局面と2Pの局面で共通しているデータ。
@@ -457,6 +478,7 @@ class PositionsCommonInfo:
         self.rule = Rule()
         self.future_ojama = FutureOjama()
 
+
 def generate_moves(pos, tumo_pool):
     """
     この局面で着手可能な指し手のリストを生成する。
@@ -467,7 +489,7 @@ def generate_moves(pos, tumo_pool):
         局面。
     tumo_pool : list(Tumo)
         配ツモ。
-    
+
     Returns
     -------
     moves : list(Move)
@@ -488,7 +510,7 @@ def generate_moves(pos, tumo_pool):
         moves.append(Move(dest, dest_side, is_tigiri))
         if tumo.pivot != tumo.child:
             moves.append(Move(dest_up, dest, False))
-            moves.append(Move(dest_side, dest, is_tigiri))      
+            moves.append(Move(dest_side, dest, is_tigiri))
     dest = (end_x, floors[end_x])
     dest_up = (end_x, floors[end_x] + 1)
     moves.append(Move(dest, dest_up, False))
@@ -504,7 +526,7 @@ def get_move_range(floors):
     ----------
     floors : list(int)
         床座標。
-    
+
     Returns
     -------
     left : int
@@ -538,7 +560,7 @@ def search(pos1, pos2, positions_common, depth):
         1Pと2Pで共通のデータ。
     depth : int
         探索深さ。
-    
+
     Returns
     -------
     move : Move
@@ -547,7 +569,7 @@ def search(pos1, pos2, positions_common, depth):
     if pos1.field.is_death():
         return Move.none()
     moves = generate_moves(pos1, positions_common.tumo_pool)
-    score, move = search_impl(pos1, pos2, positions_common, depth)
+    _, move = search_impl(pos1, pos2, positions_common, depth)
     if move.to_upi() == Move.none().to_upi():
         return moves[0]
     return move
@@ -566,7 +588,7 @@ def search_impl(pos1, pos2, positions_common, depth):
         1Pと2Pで共通のデータ。
     depth : int
         探索深さ。
-    
+
     Returns
     -------
     best_score : int
@@ -574,10 +596,12 @@ def search_impl(pos1, pos2, positions_common, depth):
     best_move : Move
         best_scoreを得ることができる指し手。
     """
+
     if depth == 0:
         return evaluate(pos1, positions_common), Move.none()
     if pos1.field.is_death():
         return -999999, Move.none()
+
     moves = generate_moves(pos1, positions_common.tumo_pool)
     best_score = -999999
     best_move = Move.none()
@@ -602,7 +626,7 @@ def evaluate(pos, positions_common):
         評価する局面。
     positions_common : PositionsCommonInfo
         共通データ。お邪魔ぷよを含む。
-    
+
     Returns
     -------
     eval : int
@@ -614,20 +638,20 @@ def evaluate(pos, positions_common):
 
 class UpiPlayer:
     def __init__(self):
-        self.common_info = PositionsCommonInfo()        
+        self.common_info = PositionsCommonInfo()
         self.positions = [Position(), Position()]
 
     def upi(self):
         engine_name = "sample_engine"
         version = "1.0"
-        author = "Ryuzo Tukamoto"    
+        author = "Ryuzo Tukamoto"
         print("id name", engine_name + version)
         print("id author", author)
         print("upiok")
 
     def tumo(self, tumos):
         self.common_info.tumo_pool = [Tumo(Puyo.to_puyo(t[0]), Puyo.to_puyo(t[1])) for t in tumos]
-  
+
     def rule(self, rules):
         for i in range(0, len(rules), 2):
             if rules[i] == "falltime":
@@ -646,7 +670,7 @@ class UpiPlayer:
 
     def position(self, pfen):
         for i in range(2):
-            self.positions[i].field.init_from_pfen(pfen[i * 2])            
+            self.positions[i].field.init_from_pfen(pfen[i * 2])
             self.positions[i].tumo_index = int(pfen[i * 2 + 1])
         self.common_info.future_ojama.fixed_ojama = int(pfen[4])
         self.common_info.future_ojama.unfixed_ojama = int(pfen[5])
@@ -666,33 +690,33 @@ if __name__ == "__main__":
     while token != "quit":
         cmd = input().split(' ')
         token = cmd[0]
-                
+
         # UPIエンジンとして認識されるために必要なコマンド
         if token == "upi":
             upi.upi()
 
         # 今回のゲームで使うツモ128個
-        elif token == "tumo":         
-            upi.tumo(cmd[1:]) 
+        elif token == "tumo":
+            upi.tumo(cmd[1:])
 
         # ルール
-        elif token == "rule": 
-            upi.rule(cmd[1:]) 
+        elif token == "rule":
+            upi.rule(cmd[1:])
 
         # 時間のかかる前処理はここで。
-        elif token == "isready": 
-            upi.isready() 
+        elif token == "isready":
+            upi.isready()
 
         # 思考開始する局面を作る。
-        elif token == "position": 
-            upi.position(cmd[1:]) 
+        elif token == "position":
+            upi.position(cmd[1:])
 
         # 思考開始の合図。エンジンはこれを受信すると思考を開始。
-        elif token == "go": 
-            upi.go() 
+        elif token == "go":
+            upi.go()
 
         # ゲーム終了時に送ってくるコマンド
-        elif token == "gameover": 
+        elif token == "gameover":
             upi.gameover()
 
         # 有効なコマンドではない。

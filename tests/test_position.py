@@ -48,11 +48,18 @@ def test_fall_ojama():
     pos = upi.Position()
     com = upi.PositionsCommonInfo()
     com.future_ojama.fixed_ojama = 25
+    com.future_ojama.unfixed_ojama = 31
     pos.fall_ojama(com)
+    # 5段降るのでおじゃまインデックスは6 * 5の30進む
+    assert pos.ojama_index == 30
     pos.ojama_index = 24
+
+    # 25個のお邪魔ぷよが降ったら4段目まではおじゃまぷよで埋まるはず
     for x in range(6):
         for y in range(4):
             assert pos.field.get_puyo(x, y) == upi.Puyo.OJAMA
+    
+    # 25個目のお邪魔ぷよが振った場所を推定する
     v = list(range(6))
     for x in range(6):
         t = com.tumo_pool[pos.ojama_index]
@@ -65,3 +72,26 @@ def test_fall_ojama():
         else:
             assert pos.field.get_puyo(x, 4) == upi.Puyo.EMPTY
 
+    # 降った後はおじゃまぷよは残っていないはず
+    assert com.future_ojama.fixed_ojama == 0
+
+    # 未確定予告ぷよは変更されていないはず
+    assert com.future_ojama.unfixed_ojama == 31
+
+
+def test_fall_ojama():
+    pos = upi.Position()
+    com = upi.PositionsCommonInfo()
+    com.future_ojama.fixed_ojama = 31
+    pos.fall_ojama(com)
+    pos.ojama_index = 30
+
+    # 30個のお邪魔ぷよが降ったら5段目まではおじゃまぷよで埋まるはず
+    for x in range(6):
+        for y in range(5):
+            assert pos.field.get_puyo(x, y) == upi.Puyo.OJAMA
+        for y in range(5, 13):
+            assert pos.field.get_puyo(x, y) == upi.Puyo.EMPTY
+
+    # 降った後はおじゃまぷよは1個残っているはず
+    assert com.future_ojama.fixed_ojama == 1
