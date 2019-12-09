@@ -9,6 +9,9 @@ pylint = "*"
 [packages]
 numpy = "*"
 pytest = "*"
+keras = "*"
+tensorflow = "*"
+pydot = "*"
 
 [requires]
 python_version = "3.6"

@@ -13,7 +13,8 @@ class Puyo(Enum):
     PURPLE = 4
     YELLOW = 5
     OJAMA = 6
-
+    COLOR_MAX = 5
+    
     @staticmethod
     def to_puyo(character):
         """
@@ -102,6 +103,9 @@ class Move:
     @staticmethod
     def none():
         return Move((0, 0), (0, 0))
+
+    def is_none(self):
+        return self.pivot_sq == (0, 0) and self.child_sq == (0, 0)
 
 class Field:
     """
@@ -478,6 +482,8 @@ class PositionsCommonInfo:
         self.rule = Rule()
         self.future_ojama = FutureOjama()
 
+    def randomize_tumo(self):        
+        self.tumo_pool = [Tumo(Puyo(1 + np.random.randint(4)), Puyo(1 + np.random.randint(4))) for i in range(128)] # 適当に初期化
 
 def generate_moves(pos, tumo_pool):
     """
@@ -683,42 +689,48 @@ class UpiPlayer:
     def gameover(self):
         # 特に何もしない
         pass
+    
+    def loop(self):
+        token = ""    
+        while True:
+            cmd = input().split(' ')
+            token = cmd[0]
+
+            if token == "quit":
+                break
+
+            # UPIエンジンとして認識されるために必要なコマンド
+            elif token == "upi":
+                upi.upi()
+
+            # 今回のゲームで使うツモ128個
+            elif token == "tumo":
+                upi.tumo(cmd[1:])
+
+            # ルール
+            elif token == "rule":
+                upi.rule(cmd[1:])
+
+            # 時間のかかる前処理はここで。
+            elif token == "isready":
+                upi.isready()
+
+            # 思考開始する局面を作る。
+            elif token == "position":
+                upi.position(cmd[1:])
+
+            # 思考開始の合図。エンジンはこれを受信すると思考を開始。
+            elif token == "go":
+                upi.go()
+
+            # ゲーム終了時に送ってくるコマンド
+            elif token == "gameover":
+                upi.gameover()
+
+            # 有効なコマンドではない。
+            else:
+                print("unknown command: ", cmd)
 
 if __name__ == "__main__":
-    token = ""
     upi = UpiPlayer()
-    while token != "quit":
-        cmd = input().split(' ')
-        token = cmd[0]
-
-        # UPIエンジンとして認識されるために必要なコマンド
-        if token == "upi":
-            upi.upi()
-
-        # 今回のゲームで使うツモ128個
-        elif token == "tumo":
-            upi.tumo(cmd[1:])
-
-        # ルール
-        elif token == "rule":
-            upi.rule(cmd[1:])
-
-        # 時間のかかる前処理はここで。
-        elif token == "isready":
-            upi.isready()
-
-        # 思考開始する局面を作る。
-        elif token == "position":
-            upi.position(cmd[1:])
-
-        # 思考開始の合図。エンジンはこれを受信すると思考を開始。
-        elif token == "go":
-            upi.go()
-
-        # ゲーム終了時に送ってくるコマンド
-        elif token == "gameover":
-            upi.gameover()
-
-        # 有効なコマンドではない。
-        else:
-            print("unknown command: ", cmd)
+    upi.loop()
