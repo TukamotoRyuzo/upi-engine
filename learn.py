@@ -5,7 +5,6 @@ from keras.utils import plot_model
 import upi
 import numpy as np
 from collections import deque
-from line_profiler import LineProfiler
 
 class QNetwork():
     """
