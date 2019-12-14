@@ -7,7 +7,7 @@ import upi
 
 # ニューラルネットワークに入力する形になっていることを確かめるテスト。
 def test_state():
-    env = learn.TokotonEnvironment(300)
+    env = learn.TokotonEnvironment()
     state = env.get_state()
     tumo = env.player.common_info.tumo_pool[0]
     curr_tumo_answer = np.zeros((1, 2, 5))
@@ -22,7 +22,7 @@ def test_state():
     assert np.array_equal(state[2], next_tumo_answer)
 
 def test_action_to_move():
-    env = learn.TokotonEnvironment(300)
+    env = learn.TokotonEnvironment()
     assert env.action_to_move( 0).to_upi() == '1a1b'
     assert env.action_to_move( 1).to_upi() == '2a2b'
     assert env.action_to_move( 2).to_upi() == '3a3b'
@@ -47,7 +47,7 @@ def test_action_to_move():
     assert env.action_to_move(21).to_upi() == '6a5a'
 
 def test_action_to_move_samecolor_tumo():
-    env = learn.TokotonEnvironment(300)
+    env = learn.TokotonEnvironment()
     env.player.common_info.tumo_pool = [upi.Tumo(upi.Puyo.RED, upi.Puyo.RED) for i in range(128)]
     assert env.action_to_move( 0).to_upi() == '1a1b'
     assert env.action_to_move( 1).to_upi() == '2a2b'
@@ -73,7 +73,7 @@ def test_action_to_move_samecolor_tumo():
     assert env.action_to_move(21).to_upi() == '5a6a'
 
 def test_action_to_move():
-    env = learn.TokotonEnvironment(300)
+    env = learn.TokotonEnvironment()
     env.player.positions[0].field.init_from_pfen('/oooooooooooo//oooooooooooo///')
     assert env.action_to_move( 0).is_none()
     assert env.action_to_move( 1).is_none()
@@ -99,17 +99,15 @@ def test_action_to_move():
     assert env.action_to_move(21).is_none()
 
 def test_reward():
-    env = learn.TokotonEnvironment(300)
-    assert env.get_reward(False, 299) == 0
-    assert env.get_reward(False, 300) == 0
-    assert env.get_reward(False, 301) == 0
-    assert env.get_reward(True, 299) == -1
-    assert env.get_reward(True, 300) == 1
-    assert env.get_reward(True, 301) == 1
+    env = learn.TokotonEnvironment()    
+    assert env.get_reward(False) == 0
+    env.player.common_info.future_ojama.fixed_ojama = -99999
+    assert env.get_reward(False) == 0
+    assert env.get_reward(True) == 1
 
 def test_step():
-    env = learn.TokotonEnvironment(300)
-    state, reward, done = env.step(0, 0)
+    env = learn.TokotonEnvironment()
+    state, reward, done = env.step(0)
     assert reward == 0
     assert not done
     tumo = env.player.common_info.tumo_pool[0]
@@ -130,9 +128,9 @@ def test_step():
     assert not env.state_is_zero(state)
 
 def test_step_death():
-    env = learn.TokotonEnvironment(300)
+    env = learn.TokotonEnvironment()
     env.player.positions[0].field.init_from_pfen('//ooooooooooo////')
-    state, reward, done = env.step(2, 0)
+    state, reward, done = env.step(2)
     assert reward == -1
     assert done
     assert np.array_equal(state[0], np.zeros((1, 6, 13, 5)))
@@ -141,9 +139,10 @@ def test_step_death():
     assert env.state_is_zero(state)
 
 def test_step_done():
-    env = learn.TokotonEnvironment(300)
+    env = learn.TokotonEnvironment()
     env.player.positions[0].field.init_from_pfen('//////')
-    state, reward, done = env.step(2, 300)
+    env.player.common_info.future_ojama.fixed_ojama = -99999
+    state, reward, done = env.step(2)
     assert reward == 1
     assert done
     assert np.array_equal(state[0], np.zeros((1, 6, 13, 5)))
@@ -152,15 +151,15 @@ def test_step_done():
     assert env.state_is_zero(state)
 
 def test_step_illegalmove_done():
-    env = learn.TokotonEnvironment(300)
+    env = learn.TokotonEnvironment()
     env.player.positions[0].field.init_from_pfen('/oooooooooooo//oooooooooooo///')
-    state, reward, done = env.step(0, 0)
+    state, reward, done = env.step(0)
     assert reward == -1
     assert done
     assert env.state_is_zero(state)
 
 def test_reset():
-    env = learn.TokotonEnvironment(300)
+    env = learn.TokotonEnvironment()
     env.player.positions[0].field.init_from_pfen('g/r/g/r/g/r/')
     env.player.positions[0].tumo_index = 20
     env.reset()

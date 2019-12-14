@@ -5,40 +5,52 @@ from keras.utils import plot_model
 import upi
 import numpy as np
 from collections import deque
+from line_profiler import LineProfiler
+from datetime import datetime
+import tensorflow as tf
 
 class QNetwork():
     """
-    指し手22種類の中から最善手を選ぶためのニューラルネットワーク。22クラス分類と考える。
+    指し手22種類の中から最善手を選ぶためのニューラルネットワーク。
+    時刻tでの状態sにおける行動aによって、この先どの程度の報酬Rがトータルでもらえるのかを返す。
     """
     action_size = 22
+    FIELD_SHAPE = (upi.Field.X_MAX, upi.Field.Y_MAX, 5)
+    TUMO_SHAPE = (2, 5)
+    
+    @staticmethod
+    def get_batch_field_shape(batch_size):
+        return (batch_size, QNetwork.FIELD_SHAPE[0], QNetwork.FIELD_SHAPE[1], QNetwork.FIELD_SHAPE[2])
+    
+    @staticmethod
+    def get_batch_tumo_shape(batch_size):
+        return (batch_size, QNetwork.TUMO_SHAPE[0], QNetwork.TUMO_SHAPE[1])
 
     def __init__(self, learning_rate=0.0001):        
         # 入力
         # 盤面, ツモ(現在のツモ、次のツモ)
-        field = Input(shape=(6, 13, 5), name='field')
-        tumo_curr = Input(shape=(2, 5), name='tumo_curr')
-        tumo_next = Input(shape=(2, 5), name='tumo_next')
+        field = Input(shape=QNetwork.FIELD_SHAPE, name='field')
+        tumo_curr = Input(shape=QNetwork.TUMO_SHAPE, name='tumo_curr')
+        tumo_next = Input(shape=QNetwork.TUMO_SHAPE, name='tumo_next')
 
         # ネットワークを定義する
-        x = Conv2D(16, 3, activation='relu', padding='same')(field)
-        #x = Conv2D(16, 3, activation='relu', padding='same')(x)
+        x = Conv2D(32, 3, activation='relu', padding='same')(field)
+        x = Conv2D(32, 3, activation='relu', padding='same')(x)
         #x = MaxPooling2D()(x)
         x = Flatten()(x)
         y = Flatten()(tumo_curr)
         z = Flatten()(tumo_next)
         all = concatenate([x, y, z])
-        #all = Dense(32, activation='relu')(all) # 適当に1層挟む。
-        output = Dense(self.action_size, activation='softmax', name='output')(all)
-        #output = Dense(self.action_size, activation='linear', name='output')(all)
+        all = Dense(32, activation='relu')(all) # 適当に1層挟む。
+        output = Dense(self.action_size, activation='linear', name='output')(all)
         self.model = Model(inputs=[field, tumo_curr, tumo_next], outputs=output)
-        self.model.compile(optimizer=Adam(lr=learning_rate), loss='binary_crossentropy')
-        #self.model.compile(optimizer=Adam(lr=learning_rate), loss='mse')        
+        self.model.compile(optimizer=Adam(lr=learning_rate), loss='mse')        
         
     def make_teacher_label(self, batch_size, gamma, target_qn, mini_batch):
-        field = np.zeros((batch_size, 6, 13, 5))
-        tumo_curr = np.zeros([batch_size, 2, 5])
-        tumo_next = np.zeros([batch_size, 2, 5])
-        targets = np.zeros([batch_size, 22])
+        field = np.zeros(self.get_batch_field_shape(batch_size))
+        tumo_curr = np.zeros(self.get_batch_tumo_shape(batch_size))
+        tumo_next = np.zeros(self.get_batch_tumo_shape(batch_size))
+        targets = np.zeros((batch_size, QNetwork.action_size))
         for i, (state_b, action_b, reward_b, next_state_b) in enumerate(mini_batch):
             field[i] = state_b[0]
             tumo_curr[i] = state_b[1]
@@ -64,42 +76,42 @@ class TokotonEnvironment:
     OpenAIGym形式の環境を作るためのクラス。
     """
 
-    def __init__(self, max_step):
+    def __init__(self):
         self.player = upi.UpiPlayer()
-        self.max_step = max_step
 
     def get_state(self):
         """
         ぷよぷよのフィールド、現在のツモ、次のツモを、ニューラルネットワークに入力できる形に変換する。
         """
         # フィールド
-        state_field = np.zeros([6, 13, 5])
-        for x in range(6):
-            for y in range(13):
+        state_field = np.zeros(QNetwork.FIELD_SHAPE)
+        for x in range(upi.Field.X_MAX):
+            for y in range(upi.Field.Y_MAX):
                 puyo = self.player.positions[0].field.get_puyo(x, y)
                 if puyo != upi.Puyo.EMPTY and puyo != upi.Puyo.OJAMA:
-                    state_field[x,y,puyo.value - 1] = 1
+                    state_field[x, y, puyo.value - 1] = 1
         # ツモ
-        state_curr_tumo = np.zeros([2, 5])
-        state_next_tumo = np.zeros([2, 5])
+        state_curr_tumo = np.zeros(QNetwork.TUMO_SHAPE)
+        state_next_tumo = np.zeros(QNetwork.TUMO_SHAPE)
         curr_tumo = self.player.common_info.tumo_pool[(self.player.positions[0].tumo_index + 0) % 128]
         next_tumo = self.player.common_info.tumo_pool[(self.player.positions[0].tumo_index + 1) % 128]
         state_curr_tumo[0, curr_tumo.pivot.value - 1] = 1
         state_curr_tumo[1, curr_tumo.child.value - 1] = 1
         state_next_tumo[0, next_tumo.pivot.value - 1] = 1
         state_next_tumo[1, next_tumo.child.value - 1] = 1
-        return [state_field.reshape((1, 6, 13, 5)), state_curr_tumo.reshape((1, 2, 5)), state_next_tumo.reshape((1, 2, 5))]
+        return [state_field[np.newaxis, :, :, :], state_curr_tumo[np.newaxis, :, :], state_next_tumo[np.newaxis, :, :]]
 
     @staticmethod
     def state_is_zero(state):
-        return np.array_equal(state[1], np.zeros((1, 2, 5)))
+        zero = np.zeros(QNetwork.TUMO_SHAPE)
+        return np.array_equal(state[1], zero[np.newaxis, :, :])
 
     @staticmethod
     def get_zero_state():
-        state_field = np.zeros([6, 13, 5])
-        state_curr_tumo = np.zeros([2, 5])
-        state_next_tumo = np.zeros([2, 5])
-        return [state_field.reshape((1, 6, 13, 5)), state_curr_tumo.reshape((1, 2, 5)), state_next_tumo.reshape((1, 2, 5))]
+        state_field = np.zeros(QNetwork.FIELD_SHAPE)
+        state_curr_tumo = np.zeros(QNetwork.TUMO_SHAPE)
+        state_next_tumo = np.zeros(QNetwork.TUMO_SHAPE)
+        return [state_field[np.newaxis, :, :, :], state_curr_tumo[np.newaxis, :, :], state_next_tumo[np.newaxis, :, :]]
 
     def action_to_move(self, action):
         """
@@ -130,7 +142,7 @@ class TokotonEnvironment:
             action_child_x = action_pivot_x - 1
             action_child_y = floors[action_child_x]
         move = upi.Move((action_pivot_x, action_pivot_y), (action_child_x, action_child_y), action_pivot_x != action_child_x and action_pivot_y != action_child_y)
-        if move.pivot_sq[1] >= 13 or move.child_sq[1] >= 13:
+        if move.pivot_sq[1] >= upi.Field.Y_MAX or move.child_sq[1] >= upi.Field.Y_MAX:
             return upi.Move.none()
         moves = upi.generate_moves(self.player.positions[0], self.player.common_info.tumo_pool)        
         tumo = self.player.common_info.tumo_pool[self.player.positions[0].tumo_index]
@@ -147,10 +159,18 @@ class TokotonEnvironment:
 
         return upi.Move.none()
 
-    def get_reward(self, done, step):
-        return (-1 if step < self.max_step else 1) if done else 0
+    def success(self):
+        ojama = -(self.player.common_info.future_ojama.unfixed_ojama + self.player.common_info.future_ojama.fixed_ojama)
+        return ojama >= 500
 
-    def step(self, action, step):
+    def get_reward(self, done):
+        if not done:
+            return 0        
+        if not self.success():
+            return -1
+        return 1
+
+    def step(self, action):
         """
         actionを基にstateを次の状態に進める。
         """
@@ -159,12 +179,12 @@ class TokotonEnvironment:
         move = self.action_to_move(action)
         if not move.is_none():
             self.player.positions[0].do_move(move, self.player.common_info)
-            state = self.get_state()
-            done = self.player.positions[0].field.is_death() or step >= self.max_step
+            state = self.get_state()            
+            done = self.player.positions[0].field.is_death() or self.success()
         else:
             # おけないところに置こうとしたら負け。
             done = True
-        reward = self.get_reward(done, step)
+        reward = self.get_reward(done)
         if done:
             state = self.get_zero_state()
         return state, reward, done
@@ -183,10 +203,13 @@ class TokotonEnvironment:
         環境を描画する。
         """
         self.player.positions[0].field.pretty_print()
+        print('unfixed:', self.player.common_info.future_ojama.unfixed_ojama)
+        print('fixed:', self.player.common_info.future_ojama.fixed_ojama)
 
 class Memory:
     def __init__(self, max_size=1000):
         self.buffer = deque(maxlen=max_size)
+        self.td_error = deque(maxlen=max_size)
 
     def add(self, experience):
         self.buffer.append(experience)
@@ -198,10 +221,52 @@ class Memory:
     def len(self):
         return len(self.buffer)
 
+    def add_td_error(self, experience, gamma, main_qn, target_qn):
+        self.td_error.append(self.get_td_error(experience, gamma, main_qn, target_qn))
+
+    # TD誤差を取得
+    @staticmethod
+    def get_td_error(experience, gamma, main_qn, target_qn):
+        (state, action, reward, next_state) = experience
+        next_action = np.argmax(main_qn.model.predict(next_state)[0])
+        target = reward + gamma * target_qn.model.predict(next_state)[0][next_action]
+        td_error = target - main_qn.model.predict(state)[0][action]
+        return td_error
+
+    def update_td_error(self, gamma, main_qn, target_qn):
+        assert len(self.td_error) == self.len() 
+        for i in range(self.len()):
+            self.td_error[i] = self.get_td_error(self.buffer[i], gamma, main_qn, target_qn)
+    
+    # TD誤差の絶対値和を取得
+    def get_sum_absolute_td_error(self):
+        assert len(self.td_error) == self.len()
+        sum_absolute_td_error = 0
+        for i in range(self.len()):
+            sum_absolute_td_error += abs(self.td_error[i]) + 0.0001  # 最新の状態データを取り出す
+        return sum_absolute_td_error
+
+    def sample_by_td_error_priority(self, batch_size):
+        # 0からTD誤差の絶対値和までの一様乱数を作成(昇順にしておく)
+        sum_absolute_td_error = self.get_sum_absolute_td_error()
+        generatedrand_list = np.random.uniform(0, sum_absolute_td_error,batch_size)
+        generatedrand_list = np.sort(generatedrand_list)
+
+        # [※p2]作成した乱数で串刺しにして、バッチを作成する
+        idx = 0
+        tmp_sum_absolute_td_error = 0
+        mini_batch = deque(maxlen=batch_size)
+        for randnum in generatedrand_list:
+            while tmp_sum_absolute_td_error < randnum:
+                tmp_sum_absolute_td_error += abs(self.td_error[idx]) + 0.0001
+                idx += 1
+            mini_batch.append(self.buffer[idx - 1]) #idx - 1では?
+        return mini_batch
 
 class Actor:
     def get_action(self, state, episode, main_qn):
         epsilon = 0.001 + 0.9 / (1.0 + episode)
+        #epsilon = 0
         if epsilon <= np.random.uniform(0, 1):
             ret = main_qn.model.predict(state)[0]
             action = np.argmax(ret)
@@ -210,29 +275,31 @@ class Actor:
         return action
 
 
-def run():
-    num_episodes = 1000  # 総試行回数
-    max_number_of_steps = 60  # 1試行のstep数
-    gamma = 0.95 # 割引係数
+def run():    
+    num_episodes = 200000  # 総試行回数
+    max_number_of_steps = 100  # 1試行のstep数
+    gamma = 0.8 # 割引係数
     memory_size = 1000
-    batch_size = 32
-    copy_target_freq = 1
+    batch_size = 16
+    copy_target_freq = 10
     learning_rate = 0.0001
     goal_average_reward = max_number_of_steps * 0.9 # この報酬を超えると学習終了
     num_consecutive_iterations = 10  # 学習完了評価の平均計算を行う試行回数
     total_reward_vec = np.zeros(num_consecutive_iterations)  # 各試行の報酬を格納
 
     # 環境作成
-    env = TokotonEnvironment(max_number_of_steps)        
+    env = TokotonEnvironment()        
     main_qn = QNetwork(learning_rate)
     target_qn = QNetwork(learning_rate)
+    #main_qn.model.load_weights('weights/latest')
+    #target_qn.model.load_weights('weights/latest')
     memory = Memory(max_size=memory_size)
     actor = Actor()
 
     for episode in range(num_episodes):
         env.reset()
         # 最初の一回は適当に行動する
-        state, _, _, = env.step(np.random.randint(0, QNetwork.action_size), 0)
+        state, _, _, = env.step(np.random.randint(0, QNetwork.action_size))
         episode_reward = 0
 
         if episode % copy_target_freq == 0:
@@ -241,29 +308,42 @@ def run():
 
         # 1試行のループ
         for step in range(max_number_of_steps + 1):
+            # env.render()
+            # import pdb
+            # pdb.set_trace()
             # 時刻tでの行動を決定する
             action = actor.get_action(state, episode, main_qn)
-            next_state, reward, done = env.step(action, step)
+            next_state, reward, done = env.step(action)
             experience = (state, action, reward, next_state)
-            memory.add(experience) 
+            memory.add(experience)
+            memory.add_td_error(experience, gamma, main_qn, target_qn)
 
             # 状態更新
             state = next_state 
             episode_reward += 1
             
             if memory.len() > batch_size:
-                main_qn.replay(memory.sample(batch_size), batch_size, gamma, target_qn)
+                #main_qn.replay(memory.sample(batch_size), batch_size, gamma, target_qn)
+                if total_reward_vec.mean() < max_number_of_steps * 0.01:
+                    main_qn.replay(memory.sample(batch_size), batch_size, gamma, target_qn)
+                else:
+                    main_qn.replay(memory.sample_by_td_error_priority(batch_size), batch_size, gamma, target_qn)
 
             # 1施行終了時の処理
             if done:
+                memory.update_td_error(gamma, main_qn, target_qn)
                 total_reward_vec = np.hstack((total_reward_vec[1:], episode_reward))  # 報酬を記録
-                print('%d Episode finished after %d time steps / mean %f' % (episode, step, total_reward_vec.mean()))
+                #print('%d Episode finished after %d time steps / mean %f' % (episode, step, total_reward_vec.mean()))
+                print('%d Episode finished after %d steps and %d ojama / mean %f' % (episode, step,
+                -(env.player.common_info.future_ojama.unfixed_ojama + env.player.common_info.future_ojama.fixed_ojama), total_reward_vec.mean()))
                 break
     
         # 複数施行の平均報酬で終了を判断
         if total_reward_vec.mean() >= goal_average_reward:
             print('Episode %d train agent successfuly!' % episode)
             break
+
+    target_qn.model.save_weights('weights/latest')
 
 if __name__ == "__main__":
     run()
