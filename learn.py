@@ -174,10 +174,6 @@ class TokotonEnvironment:
     def get_reward(self, done):
         if not done:
             return 0
-
-        #ojama = -(self.player.common_info.future_ojama.unfixed_ojama + self.player.common_info.future_ojama.fixed_ojama)
-        #reward = ojama / self.goal * 2 - 1.0
-        #return reward
         return 1 if self.success() else -1
 
     def step(self, action):
@@ -307,9 +303,9 @@ class TensorBoardLogger():
 def run():    
     num_episodes = 200000 # 総試行回数
     max_number_of_steps = 1000  # 1試行のstep数
-    gamma = 0.8 # 割引係数
+    gamma = 0.9 # 割引係数
     memory_size = 1000
-    batch_size = 16
+    batch_size = 2
     copy_target_freq = 1
     learning_rate = 0.0001
     num_consecutive_iterations = 20
