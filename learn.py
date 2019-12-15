@@ -345,7 +345,6 @@ def run():
         env.reset()
         # 最初の一回は適当に行動する
         state, _, _, = env.step(np.random.randint(0, QNetwork.ACTION_SIZE))
-        episode_reward = 0
 
         if episode % copy_target_freq == 0:
             target_qn.model.set_weights(main_qn.model.get_weights())
@@ -363,7 +362,6 @@ def run():
 
             # 状態更新
             state = next_state 
-            episode_reward += 1
             
             if memory.len() > batch_size:
                 main_qn.replay(memory.sample(batch_size), batch_size, gamma, target_qn)
