@@ -2,19 +2,33 @@ from keras.layers import Activation, Conv2D, Dense, Input, Flatten, MaxPooling2D
 from keras.optimizers import Adam
 from keras.models import Sequential, Model
 from keras.utils import plot_model
-import upi
-import numpy as np
+from keras.callbacks import TensorBoard
 from collections import deque
 from line_profiler import LineProfiler
 from datetime import datetime
+from keras import backend as K
 import tensorflow as tf
+import upi
+import numpy as np
+import os
+
+# 損失関数にhuber関数を使用します 
+# 参考: https://github.com/jaara/AI-blog/blob/master/CartPole-DQN.py
+def huberloss(y_true, y_pred):
+    err = y_true - y_pred
+    cond = K.abs(err) < 1.0
+    L2 = 0.5 * K.square(err)
+    L1 = (K.abs(err) - 0.5)
+    loss = tf.where(cond, L2, L1)  # Keras does not cover where function in tensorflow :-(
+    return K.mean(loss)
+
 
 class QNetwork():
     """
     指し手22種類の中から最善手を選ぶためのニューラルネットワーク。
     時刻tでの状態sにおける行動aによって、この先どの程度の報酬Rがトータルでもらえるのかを返す。
     """
-    action_size = 22
+    ACTION_SIZE = 22
     FIELD_SHAPE = (upi.Field.X_MAX, upi.Field.Y_MAX, 5)
     TUMO_SHAPE = (2, 5)
     
@@ -26,7 +40,7 @@ class QNetwork():
     def get_batch_tumo_shape(batch_size):
         return (batch_size, QNetwork.TUMO_SHAPE[0], QNetwork.TUMO_SHAPE[1])
 
-    def __init__(self, learning_rate=0.0001):        
+    def __init__(self, learning_rate=0.0001, callbacks=None):        
         # 入力
         # 盤面, ツモ(現在のツモ、次のツモ)
         field = Input(shape=QNetwork.FIELD_SHAPE, name='field')
@@ -42,21 +56,23 @@ class QNetwork():
         z = Flatten()(tumo_next)
         all = concatenate([x, y, z])
         all = Dense(32, activation='relu')(all) # 適当に1層挟む。
-        output = Dense(self.action_size, activation='linear', name='output')(all)
+        output = Dense(self.ACTION_SIZE, activation='linear', name='output')(all)
         self.model = Model(inputs=[field, tumo_curr, tumo_next], outputs=output)
-        self.model.compile(optimizer=Adam(lr=learning_rate), loss='mse')        
+        # self.model.compile(optimizer=Adam(lr=learning_rate), loss=huberloss)
+        self.model.compile(optimizer=Adam(lr=learning_rate), loss='mse')
+        self.callbacks = callbacks
         
     def make_teacher_label(self, batch_size, gamma, target_qn, mini_batch):
         field = np.zeros(self.get_batch_field_shape(batch_size))
         tumo_curr = np.zeros(self.get_batch_tumo_shape(batch_size))
         tumo_next = np.zeros(self.get_batch_tumo_shape(batch_size))
-        targets = np.zeros((batch_size, QNetwork.action_size))
+        targets = np.zeros((batch_size, QNetwork.ACTION_SIZE))
         for i, (state_b, action_b, reward_b, next_state_b) in enumerate(mini_batch):
             field[i] = state_b[0]
             tumo_curr[i] = state_b[1]
             tumo_next[i] = state_b[2]
             target = reward_b
-            if not TokotonEnvironment.state_is_zero(next_state_b):
+            if next_state_b is not None:
                 # Double DQN: 今の重みwにより選ばれた行動を、直前の重みw'で評価する
                 retmain_qs = self.model.predict(next_state_b)[0]
                 next_action = np.argmax(retmain_qs)
@@ -68,7 +84,7 @@ class QNetwork():
     # 重みの学習
     def replay(self, mini_batch, batch_size, gamma, target_qn):        
         inputs, targets = self.make_teacher_label(batch_size, gamma, target_qn, mini_batch)        
-        self.model.fit(inputs, targets, epochs=1, verbose=0)  # epochsは訓練データの反復回数、verbose=0は表示なしの設定
+        self.model.fit(inputs, targets, epochs=1, verbose=0, callbacks=self.callbacks)
 
 
 class TokotonEnvironment:
@@ -99,18 +115,6 @@ class TokotonEnvironment:
         state_curr_tumo[1, curr_tumo.child.value - 1] = 1
         state_next_tumo[0, next_tumo.pivot.value - 1] = 1
         state_next_tumo[1, next_tumo.child.value - 1] = 1
-        return [state_field[np.newaxis, :, :, :], state_curr_tumo[np.newaxis, :, :], state_next_tumo[np.newaxis, :, :]]
-
-    @staticmethod
-    def state_is_zero(state):
-        zero = np.zeros(QNetwork.TUMO_SHAPE)
-        return np.array_equal(state[1], zero[np.newaxis, :, :])
-
-    @staticmethod
-    def get_zero_state():
-        state_field = np.zeros(QNetwork.FIELD_SHAPE)
-        state_curr_tumo = np.zeros(QNetwork.TUMO_SHAPE)
-        state_next_tumo = np.zeros(QNetwork.TUMO_SHAPE)
         return [state_field[np.newaxis, :, :, :], state_curr_tumo[np.newaxis, :, :], state_next_tumo[np.newaxis, :, :]]
 
     def action_to_move(self, action):
@@ -161,7 +165,7 @@ class TokotonEnvironment:
 
     def success(self):
         ojama = -(self.player.common_info.future_ojama.unfixed_ojama + self.player.common_info.future_ojama.fixed_ojama)
-        return ojama >= 500
+        return ojama >= 100
 
     def get_reward(self, done):
         if not done:
@@ -186,7 +190,7 @@ class TokotonEnvironment:
             done = True
         reward = self.get_reward(done)
         if done:
-            state = self.get_zero_state()
+            state = None
         return state, reward, done
 
     def reset(self):
@@ -205,6 +209,7 @@ class TokotonEnvironment:
         self.player.positions[0].field.pretty_print()
         print('unfixed:', self.player.common_info.future_ojama.unfixed_ojama)
         print('fixed:', self.player.common_info.future_ojama.fixed_ojama)
+
 
 class Memory:
     def __init__(self, max_size=1000):
@@ -228,8 +233,10 @@ class Memory:
     @staticmethod
     def get_td_error(experience, gamma, main_qn, target_qn):
         (state, action, reward, next_state) = experience
-        next_action = np.argmax(main_qn.model.predict(next_state)[0])
-        target = reward + gamma * target_qn.model.predict(next_state)[0][next_action]
+        target = reward
+        if next_state is not None:
+            next_action = np.argmax(main_qn.model.predict(next_state)[0])
+            target += gamma * target_qn.model.predict(next_state)[0][next_action]
         td_error = target - main_qn.model.predict(state)[0][action]
         return td_error
 
@@ -263,6 +270,7 @@ class Memory:
             mini_batch.append(self.buffer[idx - 1]) #idx - 1では?
         return mini_batch
 
+
 class Actor:
     def get_action(self, state, episode, main_qn):
         epsilon = 0.001 + 0.9 / (1.0 + episode)
@@ -271,22 +279,38 @@ class Actor:
             ret = main_qn.model.predict(state)[0]
             action = np.argmax(ret)
         else:
-            action = np.random.choice(np.arange(main_qn.action_size))
+            action = np.random.choice(np.arange(main_qn.ACTION_SIZE))
         return action
 
 
+class TensorBoardLogger():
+    def __init__(self, log_dir):
+        self.log_dir = log_dir        
+        self.writer = tf.summary.create_file_writer(self.log_dir)
+        self.writer.set_as_default()
+        self.step = tf.Variable(0.0, name='step')
+        self.ojama = tf.Variable(0, name='ojama')
+        
+    def write(self, step, ojama, episode):
+        self.step.assign(step / 100.0)
+        self.ojama.assign(ojama)
+        tf.summary.scalar('step', self.step, step=episode)
+        tf.summary.scalar('ojama', self.ojama, step=episode)
+
+
 def run():    
-    num_episodes = 200000  # 総試行回数
-    max_number_of_steps = 100  # 1試行のstep数
+    num_episodes = 200 # 総試行回数
+    max_number_of_steps = 1000  # 1試行のstep数
     gamma = 0.8 # 割引係数
     memory_size = 1000
     batch_size = 16
     copy_target_freq = 10
     learning_rate = 0.0001
-    goal_average_reward = max_number_of_steps * 0.9 # この報酬を超えると学習終了
-    num_consecutive_iterations = 10  # 学習完了評価の平均計算を行う試行回数
-    total_reward_vec = np.zeros(num_consecutive_iterations)  # 各試行の報酬を格納
-
+    
+    # tensorboardによる可視化
+    log_dir = ".\\logs\\run-{}\\".format(datetime.utcnow().strftime("%Y-%m-%d %H%M%S"))
+    tensorboard = TensorBoardLogger(log_dir=log_dir)
+    
     # 環境作成
     env = TokotonEnvironment()        
     main_qn = QNetwork(learning_rate)
@@ -299,7 +323,7 @@ def run():
     for episode in range(num_episodes):
         env.reset()
         # 最初の一回は適当に行動する
-        state, _, _, = env.step(np.random.randint(0, QNetwork.action_size))
+        state, _, _, = env.step(np.random.randint(0, QNetwork.ACTION_SIZE))
         episode_reward = 0
 
         if episode % copy_target_freq == 0:
@@ -309,8 +333,7 @@ def run():
         # 1試行のループ
         for step in range(max_number_of_steps + 1):
             # env.render()
-            # import pdb
-            # pdb.set_trace()
+
             # 時刻tでの行動を決定する
             action = actor.get_action(state, episode, main_qn)
             next_state, reward, done = env.step(action)
@@ -324,26 +347,21 @@ def run():
             
             if memory.len() > batch_size:
                 #main_qn.replay(memory.sample(batch_size), batch_size, gamma, target_qn)
-                if total_reward_vec.mean() < max_number_of_steps * 0.01:
-                    main_qn.replay(memory.sample(batch_size), batch_size, gamma, target_qn)
-                else:
-                    main_qn.replay(memory.sample_by_td_error_priority(batch_size), batch_size, gamma, target_qn)
+                main_qn.replay(memory.sample_by_td_error_priority(batch_size), batch_size, gamma, target_qn)                
 
             # 1施行終了時の処理
             if done:
                 memory.update_td_error(gamma, main_qn, target_qn)
-                total_reward_vec = np.hstack((total_reward_vec[1:], episode_reward))  # 報酬を記録
-                #print('%d Episode finished after %d time steps / mean %f' % (episode, step, total_reward_vec.mean()))
-                print('%d Episode finished after %d steps and %d ojama / mean %f' % (episode, step,
-                -(env.player.common_info.future_ojama.unfixed_ojama + env.player.common_info.future_ojama.fixed_ojama), total_reward_vec.mean()))
+                print('%d Episode finished after %d steps and %d ojama' % (episode, step,
+                -(env.player.common_info.future_ojama.unfixed_ojama + env.player.common_info.future_ojama.fixed_ojama)))
+
+                # tensorboardにloggingする
+                ojama = -(env.player.common_info.future_ojama.unfixed_ojama + env.player.common_info.future_ojama.fixed_ojama)
+                tensorboard.write(step, ojama, episode)
                 break
-    
-        # 複数施行の平均報酬で終了を判断
-        if total_reward_vec.mean() >= goal_average_reward:
-            print('Episode %d train agent successfuly!' % episode)
-            break
 
     target_qn.model.save_weights('weights/latest')
+
 
 if __name__ == "__main__":
     run()
