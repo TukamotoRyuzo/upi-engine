@@ -58,8 +58,8 @@ class QNetwork():
         all = Dense(32, activation='relu')(all) # 適当に1層挟む。
         output = Dense(self.ACTION_SIZE, activation='linear', name='output')(all)
         self.model = Model(inputs=[field, tumo_curr, tumo_next], outputs=output)
-        # self.model.compile(optimizer=Adam(lr=learning_rate), loss=huberloss)
-        self.model.compile(optimizer=Adam(lr=learning_rate), loss='mse')
+        self.model.compile(optimizer=Adam(lr=learning_rate), loss=huberloss)
+        #self.model.compile(optimizer=Adam(lr=learning_rate), loss='mse')
         self.callbacks = callbacks
         
     def make_teacher_label(self, batch_size, gamma, target_qn, mini_batch):
@@ -94,6 +94,10 @@ class TokotonEnvironment:
 
     def __init__(self):
         self.player = upi.UpiPlayer()
+        self.goal = 30
+
+    def set_goal(self, goal):
+        self.goal = goal
 
     def get_state(self):
         """
@@ -165,14 +169,16 @@ class TokotonEnvironment:
 
     def success(self):
         ojama = -(self.player.common_info.future_ojama.unfixed_ojama + self.player.common_info.future_ojama.fixed_ojama)
-        return ojama >= 100
+        return ojama >= self.goal
 
     def get_reward(self, done):
         if not done:
-            return 0        
-        if not self.success():
-            return -1
-        return 1
+            return 0
+
+        #ojama = -(self.player.common_info.future_ojama.unfixed_ojama + self.player.common_info.future_ojama.fixed_ojama)
+        #reward = ojama / self.goal * 2 - 1.0
+        #return reward
+        return 1 if self.success() else -1
 
     def step(self, action):
         """
@@ -256,7 +262,7 @@ class Memory:
     def sample_by_td_error_priority(self, batch_size):
         # 0からTD誤差の絶対値和までの一様乱数を作成(昇順にしておく)
         sum_absolute_td_error = self.get_sum_absolute_td_error()
-        generatedrand_list = np.random.uniform(0, sum_absolute_td_error,batch_size)
+        generatedrand_list = np.random.uniform(0, sum_absolute_td_error, batch_size)
         generatedrand_list = np.sort(generatedrand_list)
 
         # [※p2]作成した乱数で串刺しにして、バッチを作成する
@@ -267,7 +273,7 @@ class Memory:
             while tmp_sum_absolute_td_error < randnum:
                 tmp_sum_absolute_td_error += abs(self.td_error[idx]) + 0.0001
                 idx += 1
-            mini_batch.append(self.buffer[idx - 1]) #idx - 1では?
+            mini_batch.append(self.buffer[idx - 1])
         return mini_batch
 
 
@@ -299,27 +305,30 @@ class TensorBoardLogger():
 
 
 def run():    
-    num_episodes = 200 # 総試行回数
+    num_episodes = 200000 # 総試行回数
     max_number_of_steps = 1000  # 1試行のstep数
     gamma = 0.8 # 割引係数
     memory_size = 1000
     batch_size = 16
-    copy_target_freq = 10
+    copy_target_freq = 1
     learning_rate = 0.0001
-    
+    num_consecutive_iterations = 20
+    total_reward_vec = np.zeros(num_consecutive_iterations)  # 各試行の報酬を格納
+
     # tensorboardによる可視化
     log_dir = ".\\logs\\run-{}\\".format(datetime.utcnow().strftime("%Y-%m-%d %H%M%S"))
     tensorboard = TensorBoardLogger(log_dir=log_dir)
     
     # 環境作成
-    env = TokotonEnvironment()        
+    env = TokotonEnvironment()
+    env.set_goal(30)
     main_qn = QNetwork(learning_rate)
     target_qn = QNetwork(learning_rate)
     #main_qn.model.load_weights('weights/latest')
     #target_qn.model.load_weights('weights/latest')
     memory = Memory(max_size=memory_size)
     actor = Actor()
-
+    
     for episode in range(num_episodes):
         env.reset()
         # 最初の一回は適当に行動する
@@ -328,10 +337,10 @@ def run():
 
         if episode % copy_target_freq == 0:
             target_qn.model.set_weights(main_qn.model.get_weights())
-            target_qn.model.save_weights('weights/latest')
+            target_qn.model.save_weights('weights/latest2')
 
         # 1試行のループ
-        for step in range(max_number_of_steps + 1):
+        for step in range(max_number_of_steps):
             # env.render()
 
             # 時刻tでの行動を決定する
@@ -339,28 +348,32 @@ def run():
             next_state, reward, done = env.step(action)
             experience = (state, action, reward, next_state)
             memory.add(experience)
-            memory.add_td_error(experience, gamma, main_qn, target_qn)
+            #memory.add_td_error(experience, gamma, main_qn, target_qn)
 
             # 状態更新
             state = next_state 
             episode_reward += 1
             
             if memory.len() > batch_size:
-                #main_qn.replay(memory.sample(batch_size), batch_size, gamma, target_qn)
-                main_qn.replay(memory.sample_by_td_error_priority(batch_size), batch_size, gamma, target_qn)                
+                main_qn.replay(memory.sample(batch_size), batch_size, gamma, target_qn)
+                #main_qn.replay(memory.sample_by_td_error_priority(batch_size), batch_size, gamma, target_qn)                
 
             # 1施行終了時の処理
             if done:
-                memory.update_td_error(gamma, main_qn, target_qn)
-                print('%d Episode finished after %d steps and %d ojama' % (episode, step,
-                -(env.player.common_info.future_ojama.unfixed_ojama + env.player.common_info.future_ojama.fixed_ojama)))
-
-                # tensorboardにloggingする
-                ojama = -(env.player.common_info.future_ojama.unfixed_ojama + env.player.common_info.future_ojama.fixed_ojama)
+                ojama = -(env.player.common_info.future_ojama.unfixed_ojama + env.player.common_info.future_ojama.fixed_ojama)                
+                total_reward_vec = np.hstack((total_reward_vec[1:], ojama))
+                #memory.update_td_error(gamma, main_qn, target_qn)                
+                print('%d Episode finished after %d steps and %d ojama mean %f' % (episode, step, ojama, total_reward_vec.mean()))
+                # tensorboardにloggingする                
                 tensorboard.write(step, ojama, episode)
                 break
 
-    target_qn.model.save_weights('weights/latest')
+         # 複数施行の平均報酬で終了を判断
+        if total_reward_vec.mean() >= env.goal * 0.9:
+            print('Episode %d train agent successfuly!' % episode)
+            env.set_goal(env.goal + 10)
+
+    target_qn.model.save_weights('weights/latest2')
 
 
 if __name__ == "__main__":
