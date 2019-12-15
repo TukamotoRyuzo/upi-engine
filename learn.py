@@ -214,11 +214,13 @@ class TokotonEnvironment:
 
 
 class Memory:
-    def __init__(self, max_size=1000):
+    """
+    経験再生用メモリ。
+    """
+    def __init__(self, max_size):
         self.buffer = deque(maxlen=max_size)
-        self.td_error = deque(maxlen=max_size)
 
-    def add(self, experience):
+    def add(self, experience, gamma, main_qn, target_qn):
         self.buffer.append(experience)
 
     def sample(self, batch_size):
@@ -228,7 +230,20 @@ class Memory:
     def len(self):
         return len(self.buffer)
 
-    def add_td_error(self, experience, gamma, main_qn, target_qn):
+    def update(self, gamma, main_qn, target_qn):
+        pass
+
+
+class PERMemory(Memory):
+    """
+    優先度付き経験再生用メモリ。
+    """
+    def __init__(self, max_size):
+        super().__init__(max_size)
+        self.td_error = deque(maxlen=max_size)
+
+    def add(self, experience, gamma, main_qn, target_qn):
+        super().add(experience, gamma, main_qn, target_qn)
         self.td_error.append(self.get_td_error(experience, gamma, main_qn, target_qn))
 
     # TD誤差を取得
@@ -242,7 +257,7 @@ class Memory:
         td_error = target - main_qn.model.predict(state)[0][action]
         return td_error
 
-    def update_td_error(self, gamma, main_qn, target_qn):
+    def update(self, gamma, main_qn, target_qn):
         assert len(self.td_error) == self.len() 
         for i in range(self.len()):
             self.td_error[i] = self.get_td_error(self.buffer[i], gamma, main_qn, target_qn)
@@ -255,7 +270,7 @@ class Memory:
             sum_absolute_td_error += abs(self.td_error[i]) + 0.0001  # 最新の状態データを取り出す
         return sum_absolute_td_error
 
-    def sample_by_td_error_priority(self, batch_size):
+    def sample(self, batch_size):
         # 0からTD誤差の絶対値和までの一様乱数を作成(昇順にしておく)
         sum_absolute_td_error = self.get_sum_absolute_td_error()
         generatedrand_list = np.random.uniform(0, sum_absolute_td_error, batch_size)
@@ -323,6 +338,7 @@ def run():
     #main_qn.model.load_weights('weights/latest')
     #target_qn.model.load_weights('weights/latest')
     memory = Memory(max_size=memory_size)
+    #memory = PERMemory(max_size=memory_size)
     actor = Actor()
     
     for episode in range(num_episodes):
@@ -343,8 +359,7 @@ def run():
             action = actor.get_action(state, episode, main_qn)
             next_state, reward, done = env.step(action)
             experience = (state, action, reward, next_state)
-            memory.add(experience)
-            #memory.add_td_error(experience, gamma, main_qn, target_qn)
+            memory.add(experience, gamma, main_qn, target_qn)
 
             # 状態更新
             state = next_state 
@@ -352,13 +367,12 @@ def run():
             
             if memory.len() > batch_size:
                 main_qn.replay(memory.sample(batch_size), batch_size, gamma, target_qn)
-                #main_qn.replay(memory.sample_by_td_error_priority(batch_size), batch_size, gamma, target_qn)                
 
             # 1施行終了時の処理
             if done:
                 ojama = -(env.player.common_info.future_ojama.unfixed_ojama + env.player.common_info.future_ojama.fixed_ojama)                
                 total_reward_vec = np.hstack((total_reward_vec[1:], ojama))
-                #memory.update_td_error(gamma, main_qn, target_qn)                
+                memory.update(gamma, main_qn, target_qn)
                 print('%d Episode finished after %d steps and %d ojama mean %f' % (episode, step, ojama, total_reward_vec.mean()))
                 # tensorboardにloggingする                
                 tensorboard.write(step, ojama, episode)
