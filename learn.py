@@ -11,6 +11,7 @@ import tensorflow as tf
 import upi
 import numpy as np
 import os
+import argparse
 
 # 損失関数にhuber関数を使用します 
 # 参考: https://github.com/jaara/AI-blog/blob/master/CartPole-DQN.py
@@ -315,28 +316,32 @@ class TensorBoardLogger():
         tf.summary.scalar('ojama', self.ojama, step=episode)
 
 
-def run():    
+def run(id, load_path):    
     num_episodes = 200000 # 総試行回数
     max_number_of_steps = 1000  # 1試行のstep数
     gamma = 0.9 # 割引係数
     memory_size = 1000
-    batch_size = 2
+    batch_size = 8
     copy_target_freq = 1
     learning_rate = 0.0001
     num_consecutive_iterations = 20
     total_reward_vec = np.zeros(num_consecutive_iterations)  # 各試行の報酬を格納
 
     # tensorboardによる可視化
-    log_dir = ".\\logs\\run-{}\\".format(datetime.utcnow().strftime("%Y-%m-%d %H%M%S"))
-    tensorboard = TensorBoardLogger(log_dir=log_dir)
-    
+    log_dir = f'.\\logs\\run-{id}-{datetime.utcnow().strftime("%Y%m%d%H%M%S")}'
+    tensorboard = TensorBoardLogger(log_dir=log_dir)    
+    save_weight_path = f'weights/{id}'
+
     # 環境作成
     env = TokotonEnvironment()
     env.set_goal(30)
     main_qn = QNetwork(learning_rate)
     target_qn = QNetwork(learning_rate)
-    #main_qn.model.load_weights('weights/latest')
-    #target_qn.model.load_weights('weights/latest')
+
+    if load_path != '':
+        main_qn.model.load_weights(load_path)
+        target_qn.model.load_weights(load_path)
+
     memory = Memory(max_size=memory_size)
     #memory = PERMemory(max_size=memory_size)
     actor = Actor()
@@ -348,18 +353,16 @@ def run():
 
         if episode % copy_target_freq == 0:
             target_qn.model.set_weights(main_qn.model.get_weights())
-            target_qn.model.save_weights('weights/latest2')
+            target_qn.model.save_weights(save_weight_path)
 
         # 1試行のループ
-        for step in range(max_number_of_steps):
-            # env.render()
-
+        for step in range(max_number_of_steps):            
             # 時刻tでの行動を決定する
             action = actor.get_action(state, episode, main_qn)
             next_state, reward, done = env.step(action)
             experience = (state, action, reward, next_state)
             memory.add(experience, gamma, main_qn, target_qn)
-
+            
             # 状態更新
             state = next_state 
             
@@ -385,7 +388,13 @@ def run():
 
 
 if __name__ == "__main__":
-    run()
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--id', default='default')
+    parser.add_argument('--load_path', default='')
+    args = parser.parse_args()
+    if args.id == '':
+        args.id = 'default'
+    run(args.id, args.load_path)
     # prof = LineProfiler()
     # prof.add_function(run)
     # prof.add_function(QNetwork.make_teacher_label)
