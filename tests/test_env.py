@@ -125,7 +125,7 @@ def test_step():
     assert np.array_equal(state[0], field_answer)
     assert np.array_equal(state[1], curr_tumo_answer)
     assert np.array_equal(state[2], next_tumo_answer)
-    assert not env.state_is_zero(state)
+    assert state is not None
 
 def test_step_death():
     env = learn.TokotonEnvironment()
@@ -133,10 +133,7 @@ def test_step_death():
     state, reward, done = env.step(2)
     assert reward == -1
     assert done
-    assert np.array_equal(state[0], np.zeros((1, 6, 13, 5)))
-    assert np.array_equal(state[1], np.zeros((1, 2, 5)))
-    assert np.array_equal(state[2], np.zeros((1, 2, 5)))
-    assert env.state_is_zero(state)
+    assert state is None
 
 def test_step_done():
     env = learn.TokotonEnvironment()
@@ -145,10 +142,7 @@ def test_step_done():
     state, reward, done = env.step(2)
     assert reward == 1
     assert done
-    assert np.array_equal(state[0], np.zeros((1, 6, 13, 5)))
-    assert np.array_equal(state[1], np.zeros((1, 2, 5)))
-    assert np.array_equal(state[2], np.zeros((1, 2, 5)))
-    assert env.state_is_zero(state)
+    assert state is None
 
 def test_step_illegalmove_done():
     env = learn.TokotonEnvironment()
@@ -156,7 +150,7 @@ def test_step_illegalmove_done():
     state, reward, done = env.step(0)
     assert reward == -1
     assert done
-    assert env.state_is_zero(state)
+    assert state is None
 
 def test_reset():
     env = learn.TokotonEnvironment()

@@ -7,14 +7,13 @@ import numpy as np
 def test_memory():
     memory = learn.Memory(300)    
     for i in range(300):
-        memory.add(i)
+        memory.add(i, None, None, None)
         assert memory.len() == i + 1
-    memory.add(1)
+    memory.add(1, None, None, None)
     assert memory.len() == 300
     sample = memory.sample(300)
     for s in sample:
         assert s != 0
-
 
 # stab
 class ModelStab:
@@ -28,7 +27,7 @@ class QNetworkStab:
         self.model = ModelStab(param)
 
 def test_get_td_error():
-    memory = learn.Memory(300)
+    memory = learn.PERMemory(300)
     state = 0
     action = 0
     reward = 0

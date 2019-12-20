@@ -188,7 +188,7 @@ class Field:
         """
         フィールドがすべて空かを判定する。
         """
-        return not np.any(self.field == Puyo.EMPTY)
+        return np.all(self.field.reshape(-1) == Puyo.EMPTY)
 
     def count_connection(self, puyo, x, y, searched):
         """

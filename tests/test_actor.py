@@ -13,7 +13,7 @@ class ModelStab:
         return [list(range(22))]
 
 class QNetworkStab:
-    action_size = 22
+    ACTION_SIZE = 22
     def __init__(self):
         self.model = ModelStab()
 

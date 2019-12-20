@@ -346,7 +346,7 @@ def run(id, load_path):
     #memory = PERMemory(max_size=memory_size)
     actor = Actor()
     
-    for episode in range(num_episodes):
+    for episode in range(num_episodes):        
         env.reset()
         # 最初の一回は適当に行動する
         state, _, _, = env.step(np.random.randint(0, QNetwork.ACTION_SIZE))
@@ -357,6 +357,8 @@ def run(id, load_path):
 
         # 1試行のループ
         for step in range(max_number_of_steps):            
+            # env.render()
+            # a = input()
             # 時刻tでの行動を決定する
             action = actor.get_action(state, episode, main_qn)
             next_state, reward, done = env.step(action)
