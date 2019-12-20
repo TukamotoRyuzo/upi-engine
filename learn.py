@@ -321,7 +321,7 @@ def run(id, load_path):
     max_number_of_steps = 1000  # 1試行のstep数
     gamma = 0.9 # 割引係数
     memory_size = 1000
-    batch_size = 8
+    batch_size = 4
     copy_target_freq = 1
     learning_rate = 0.0001
     num_consecutive_iterations = 20
