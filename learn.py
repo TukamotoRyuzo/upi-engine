@@ -68,7 +68,8 @@ class QNetwork():
         tumo_curr = np.zeros(self.get_batch_tumo_shape(batch_size))
         tumo_next = np.zeros(self.get_batch_tumo_shape(batch_size))
         targets = np.zeros((batch_size, QNetwork.ACTION_SIZE))
-        for i, (state_b, action_b, reward_b, next_state_b) in enumerate(mini_batch):
+        errors = np.zeros(batch_size)
+        for i, (_, (state_b, action_b, reward_b, next_state_b)) in enumerate(mini_batch):
             field[i] = state_b[0]
             tumo_curr[i] = state_b[1]
             tumo_next[i] = state_b[2]
@@ -79,12 +80,18 @@ class QNetwork():
                 next_action = np.argmax(retmain_qs)
                 target = reward_b + gamma * target_qn.model.predict(next_state_b)[0][next_action]
             targets[i] = self.model.predict(state_b)[0]
+            errors[i] = abs(targets[i][action_b] - target)
             targets[i][action_b] = target
-        return [field, tumo_curr, tumo_next], targets
+            
+        return [field, tumo_curr, tumo_next], targets, errors
 
     # 重みの学習
-    def replay(self, mini_batch, batch_size, gamma, target_qn):        
-        inputs, targets = self.make_teacher_label(batch_size, gamma, target_qn, mini_batch)        
+    def replay(self, memory, batch_size, gamma, target_qn):
+        mini_batch = memory.sample(batch_size)
+        inputs, targets, errors = self.make_teacher_label(batch_size, gamma, target_qn, mini_batch)
+        for i in range(batch_size):
+            idx = mini_batch[i][0]
+            memory.update(idx, errors[i])
         self.model.fit(inputs, targets, epochs=1, verbose=0, callbacks=self.callbacks)
 
 
@@ -226,26 +233,96 @@ class Memory:
 
     def sample(self, batch_size):
         idx = np.random.choice(np.arange(self.len()), size=batch_size, replace=False)
-        return [self.buffer[ii] for ii in idx]
+        return [(i, self.buffer[ii]) for i, ii in enumerate(idx)]
 
     def len(self):
         return len(self.buffer)
 
-    def update(self, gamma, main_qn, target_qn):
+    def update(self, idx, error):
         pass
 
 
-class PERMemory(Memory):
-    """
-    優先度付き経験再生用メモリ。
-    """
+
+class SumTree:
+    def __init__(self, capacity):
+        self.capacity = capacity
+        self.tree = np.zeros(2 * capacity - 1)
+        self.data = np.zeros(capacity, dtype=object)
+        self.write = 0
+
+    def total(self):
+        return self.tree[0]
+
+    def add(self, p, data):
+        idx = self.write + self.capacity - 1
+        self.data[self.write] = data
+        self.update(idx, p)
+        self.write += 1
+        if self.write >= self.capacity:
+            self.write = 0
+
+    def update(self, idx, p):
+        change = p - self.tree[idx]
+        self.tree[idx] = p
+        self._propagate(idx, change)
+
+    def get(self, s):
+        idx = self._retrieve(0, s)
+        data_idx = idx - self.capacity + 1
+        return (idx, self.tree[idx], self.data[data_idx])
+
+    def _propagate(self, idx, change):
+        parent = (idx - 1) // 2
+        self.tree[parent] += change
+        if parent != 0:
+            self._propagate(parent, change)
+
+    def _retrieve(self, idx, s):
+        left = 2 * idx + 1
+        right = left + 1
+        if left >= len(self.tree):
+            return idx
+        if s <= self.tree[left]:
+            return self._retrieve(left, s)
+        else:
+            return self._retrieve(right, s - self.tree[left])
+
+class PERMemory:   # stored as ( s, a, r, s_ ) in SumTree
+    e = 0.01
+    a = 0.6
+
     def __init__(self, max_size):
-        super().__init__(max_size)
-        self.td_error = deque(maxlen=max_size)
+        self.tree = SumTree(max_size)
+        self.exp = 0
+
+    def _get_priority(self, error):
+        return (error + self.e) ** self.a
 
     def add(self, experience, gamma, main_qn, target_qn):
-        super().add(experience, gamma, main_qn, target_qn)
-        self.td_error.append(self.get_td_error(experience, gamma, main_qn, target_qn))
+        error = abs(self.get_td_error(experience, gamma, main_qn, target_qn))
+        p = self._get_priority(error)
+        self.tree.add(p, experience) 
+        if self.exp < self.tree.capacity:
+            self.exp += 1
+        
+    def sample(self, batch_size):
+        batch = []
+        indices = []
+        segment = self.tree.total() / batch_size
+        for i in range(batch_size):
+            a = segment * i
+            b = segment * (i + 1)
+            s = np.random.uniform(a, b)
+            (idx, p, data) = self.tree.get(s)
+            batch.append((idx, data))
+        return batch
+
+    def update(self, idx, error):
+        p = self._get_priority(error)
+        self.tree.update(idx, p)
+
+    def len(self):
+        return self.exp
 
     # TD誤差を取得
     @staticmethod
@@ -258,47 +335,14 @@ class PERMemory(Memory):
         td_error = target - main_qn.model.predict(state)[0][action]
         return td_error
 
-    def update(self, gamma, main_qn, target_qn):
-        assert len(self.td_error) == self.len() 
-        for i in range(self.len()):
-            self.td_error[i] = self.get_td_error(self.buffer[i], gamma, main_qn, target_qn)
-    
-    # TD誤差の絶対値和を取得
-    def get_sum_absolute_td_error(self):
-        assert len(self.td_error) == self.len()
-        sum_absolute_td_error = 0
-        for i in range(self.len()):
-            sum_absolute_td_error += abs(self.td_error[i]) + 0.0001  # 最新の状態データを取り出す
-        return sum_absolute_td_error
-
-    def sample(self, batch_size):
-        # 0からTD誤差の絶対値和までの一様乱数を作成(昇順にしておく)
-        sum_absolute_td_error = self.get_sum_absolute_td_error()
-        generatedrand_list = np.random.uniform(0, sum_absolute_td_error, batch_size)
-        generatedrand_list = np.sort(generatedrand_list)
-
-        # [※p2]作成した乱数で串刺しにして、バッチを作成する
-        idx = 0
-        tmp_sum_absolute_td_error = 0
-        mini_batch = deque(maxlen=batch_size)
-        for randnum in generatedrand_list:
-            while tmp_sum_absolute_td_error < randnum:
-                tmp_sum_absolute_td_error += abs(self.td_error[idx]) + 0.0001
-                idx += 1
-            mini_batch.append(self.buffer[idx - 1])
-        return mini_batch
-
 
 class Actor:
     def get_action(self, state, episode, main_qn):
         epsilon = 0.001 + 0.9 / (1.0 + episode)
-        #epsilon = 0
         if epsilon <= np.random.uniform(0, 1):
-            ret = main_qn.model.predict(state)[0]
-            action = np.argmax(ret)
+            return np.argmax(main_qn.model.predict(state)[0])
         else:
-            action = np.random.choice(np.arange(main_qn.ACTION_SIZE))
-        return action
+            return np.random.choice(np.arange(main_qn.ACTION_SIZE))
 
 
 class TensorBoardLogger():
@@ -320,9 +364,9 @@ def run(id, load_path):
     num_episodes = 200000 # 総試行回数
     max_number_of_steps = 1000  # 1試行のstep数
     gamma = 0.9 # 割引係数
-    memory_size = 1000
+    memory_size = 65536
     batch_size = 4
-    copy_target_freq = 1
+    copy_target_freq = 1000
     learning_rate = 0.0001
     num_consecutive_iterations = 20
     total_reward_vec = np.zeros(num_consecutive_iterations)  # 各試行の報酬を格納
@@ -342,21 +386,35 @@ def run(id, load_path):
         main_qn.model.load_weights(load_path)
         target_qn.model.load_weights(load_path)
 
-    memory = Memory(max_size=memory_size)
-    #memory = PERMemory(max_size=memory_size)
+    #memory = Memory(max_size=memory_size)
+    memory = PERMemory(max_size=memory_size)
     actor = Actor()
-    
+    step = 0
+
+    print('initialize memory')
+
+    # メモリが満タンになるまでランダムプレイ
+    while memory.len() < memory_size:
+        env.reset()
+        state = env.get_state()
+        done = False
+        while not done:
+            action = np.random.randint(0, QNetwork.ACTION_SIZE)
+            next_state, reward, done = env.step(action)
+            experience = (state, action, reward, next_state)
+            memory.add(experience, gamma, main_qn, target_qn)
+            state = next_state
+
+    print('start learn')
+
+    # 学習開始
     for episode in range(num_episodes):        
         env.reset()
         # 最初の一回は適当に行動する
-        state, _, _, = env.step(np.random.randint(0, QNetwork.ACTION_SIZE))
-
-        if episode % copy_target_freq == 0:
-            target_qn.model.set_weights(main_qn.model.get_weights())
-            target_qn.model.save_weights(save_weight_path)
+        state, _, done, = env.step(np.random.randint(0, QNetwork.ACTION_SIZE))
 
         # 1試行のループ
-        for step in range(max_number_of_steps):            
+        while not done:
             # env.render()
             # a = input()
             # 時刻tでの行動を決定する
@@ -367,19 +425,19 @@ def run(id, load_path):
             
             # 状態更新
             state = next_state 
-            
-            if memory.len() > batch_size:
-                main_qn.replay(memory.sample(batch_size), batch_size, gamma, target_qn)
+            step += 1
 
-            # 1施行終了時の処理
-            if done:
-                ojama = -(env.player.common_info.future_ojama.unfixed_ojama + env.player.common_info.future_ojama.fixed_ojama)                
-                total_reward_vec = np.hstack((total_reward_vec[1:], ojama))
-                memory.update(gamma, main_qn, target_qn)
-                print('%d Episode finished after %d steps and %d ojama mean %f' % (episode, step, ojama, total_reward_vec.mean()))
-                # tensorboardにloggingする                
-                tensorboard.write(step, ojama, episode)
-                break
+            if step % copy_target_freq == 0:
+                target_qn.model.set_weights(main_qn.model.get_weights())
+                target_qn.model.save_weights(save_weight_path)
+
+            main_qn.replay(memory, batch_size, gamma, target_qn)
+
+        # 1施行終了時の処理
+        ojama = -(env.player.common_info.future_ojama.unfixed_ojama + env.player.common_info.future_ojama.fixed_ojama)                
+        total_reward_vec = np.hstack((total_reward_vec[1:], ojama))
+        print(f'{episode} Episode finished after {step} steps and {ojama} ojama mean {total_reward_vec.mean()}')
+        tensorboard.write(step, ojama, episode)
 
          # 複数施行の平均報酬で終了を判断
         if total_reward_vec.mean() >= env.goal * 0.9:
