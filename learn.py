@@ -1,4 +1,4 @@
-from keras.layers import Activation, Conv2D, Dense, Input, Flatten, MaxPooling2D, concatenate
+from keras.layers import Activation, Conv2D, Dense, Input, Flatten, MaxPooling2D, concatenate, Lambda
 from keras.optimizers import Adam
 from keras.models import Sequential, Model
 from keras.utils import plot_model
@@ -49,15 +49,26 @@ class QNetwork():
         tumo_next = Input(shape=QNetwork.TUMO_SHAPE, name='tumo_next')
 
         # ネットワークを定義する
-        x = Conv2D(32, 3, activation='relu', padding='same')(field)
-        x = Conv2D(32, 3, activation='relu', padding='same')(x)
+        x = Conv2D(64, 3, activation='relu', padding='same')(field)
+        x = Conv2D(64, 3, activation='relu', padding='same')(x)
         #x = MaxPooling2D()(x)
         x = Flatten()(x)
         y = Flatten()(tumo_curr)
         z = Flatten()(tumo_next)
         all = concatenate([x, y, z])
-        all = Dense(32, activation='relu')(all) # 適当に1層挟む。
-        output = Dense(self.ACTION_SIZE, activation='linear', name='output')(all)
+        
+        # dueling network
+        # 状態価値
+        v = Dense(64, activation='relu')(all)
+        v = Dense(1)(v)
+
+        # 行動価値
+        adv = Dense(64, activation='relu')(all)
+        adv = Dense(self.ACTION_SIZE)(adv)
+        
+        y = concatenate([v,adv])
+        output = Lambda(lambda a: K.expand_dims(a[:, 0], -1) + a[:, 1:] - tf.stop_gradient(K.mean(a[:,1:],keepdims=True)), output_shape=(self.ACTION_SIZE,))(y)
+        #output = Dense(self.ACTION_SIZE, activation='linear', name='output')(all)
         self.model = Model(inputs=[field, tumo_curr, tumo_next], outputs=output)
         self.model.compile(optimizer=Adam(lr=learning_rate), loss=huberloss)
         #self.model.compile(optimizer=Adam(lr=learning_rate), loss='mse')
@@ -362,7 +373,6 @@ class TensorBoardLogger():
 
 def run(id, load_path):    
     num_episodes = 200000 # 総試行回数
-    max_number_of_steps = 1000  # 1試行のstep数
     gamma = 0.9 # 割引係数
     memory_size = 65536
     batch_size = 4
@@ -372,7 +382,7 @@ def run(id, load_path):
     total_reward_vec = np.zeros(num_consecutive_iterations)  # 各試行の報酬を格納
 
     # tensorboardによる可視化
-    log_dir = f'.\\logs\\run-{id}-{datetime.utcnow().strftime("%Y%m%d%H%M%S")}'
+    log_dir = f'.\\logs\\{id}-gamma{gamma}_memory{memory_size}_batch{batch_size}_update{copy_target_freq}_eta{learning_rate}'
     tensorboard = TensorBoardLogger(log_dir=log_dir)    
     save_weight_path = f'weights/{id}'
 
