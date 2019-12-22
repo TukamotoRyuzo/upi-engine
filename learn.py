@@ -11,6 +11,7 @@ import upi
 import numpy as np
 import os
 import argparse
+from abc import ABC, abstractmethod
 
 # 損失関数にhuber関数を使用します 
 # 参考: https://github.com/jaara/AI-blog/blob/master/CartPole-DQN.py
@@ -28,24 +29,21 @@ class QNetwork():
     指し手22種類の中から最善手を選ぶためのニューラルネットワーク。
     時刻tでの状態sにおける行動aによって、この先どの程度の報酬Rがトータルでもらえるのかを返す。
     """
-    ACTION_SIZE = 22
-    FIELD_SHAPE = (upi.Field.X_MAX, upi.Field.Y_MAX, 5)
-    TUMO_SHAPE = (2, 5)
     
     @staticmethod
     def get_batch_field_shape(batch_size):
-        return (batch_size, QNetwork.FIELD_SHAPE[0], QNetwork.FIELD_SHAPE[1], QNetwork.FIELD_SHAPE[2])
+        return (batch_size, TokotonEnvironment.FIELD_SHAPE[0], TokotonEnvironment.FIELD_SHAPE[1], TokotonEnvironment.FIELD_SHAPE[2])
     
     @staticmethod
     def get_batch_tumo_shape(batch_size):
-        return (batch_size, QNetwork.TUMO_SHAPE[0], QNetwork.TUMO_SHAPE[1])
+        return (batch_size, TokotonEnvironment.TUMO_SHAPE[0], TokotonEnvironment.TUMO_SHAPE[1])
 
     def __init__(self, learning_rate=0.0001, callbacks=None):        
         # 入力
         # 盤面, ツモ(現在のツモ、次のツモ)
-        field = Input(shape=QNetwork.FIELD_SHAPE, name='field')
-        tumo_curr = Input(shape=QNetwork.TUMO_SHAPE, name='tumo_curr')
-        tumo_next = Input(shape=QNetwork.TUMO_SHAPE, name='tumo_next')
+        field = Input(shape=TokotonEnvironment.FIELD_SHAPE, name='field')
+        tumo_curr = Input(shape=TokotonEnvironment.TUMO_SHAPE, name='tumo_curr')
+        tumo_next = Input(shape=TokotonEnvironment.TUMO_SHAPE, name='tumo_next')
         all_clear_flag = Input(shape=(1,), name='all_clear_flag')
 
         # ネットワークを定義する
@@ -63,11 +61,11 @@ class QNetwork():
 
         # 行動価値
         adv = Dense(64, activation='relu')(all)
-        adv = Dense(self.ACTION_SIZE)(adv)
+        adv = Dense(TokotonEnvironment.ACTION_SIZE)(adv)
         
         y = concatenate([v,adv])
-        output = Lambda(lambda a: K.expand_dims(a[:, 0], -1) + a[:, 1:] - tf.stop_gradient(K.mean(a[:,1:],keepdims=True)), output_shape=(self.ACTION_SIZE,))(y)
-        #output = Dense(self.ACTION_SIZE, activation='linear', name='output')(all)
+        output = Lambda(lambda a: K.expand_dims(a[:, 0], -1) + a[:, 1:] - tf.stop_gradient(K.mean(a[:,1:],keepdims=True)), output_shape=(TokotonEnvironment.ACTION_SIZE,))(y)
+        #output = Dense(TokotonEnvironment.ACTION_SIZE, activation='linear', name='output')(all)
         self.model = Model(inputs=[field, tumo_curr, tumo_next, all_clear_flag], outputs=output)
         self.model.compile(optimizer=RMSprop(lr=learning_rate), loss=huberloss)
         #self.model.compile(optimizer=Adam(lr=learning_rate), loss='mse')
@@ -78,7 +76,7 @@ class QNetwork():
         tumo_curr = np.zeros(self.get_batch_tumo_shape(batch_size))
         tumo_next = np.zeros(self.get_batch_tumo_shape(batch_size))
         all_clear_flag = np.zeros((batch_size, 1))
-        targets = np.zeros((batch_size, QNetwork.ACTION_SIZE))
+        targets = np.zeros((batch_size, TokotonEnvironment.ACTION_SIZE))
         errors = np.zeros(batch_size)
         for i, (_, (state_b, action_b, reward_b, next_state_b)) in enumerate(mini_batch):
             field[i] = state_b[0]
@@ -105,43 +103,45 @@ class QNetwork():
             memory.update(idx, errors[i])
         self.model.fit(inputs, targets, epochs=1, verbose=0, callbacks=self.callbacks)
 
-
-class TokotonEnvironment:
+class PuyoEnvironmentBase(ABC):
     """
     OpenAIGym形式の環境を作るためのクラス。
     """
-
+    ACTION_SIZE = 22
+    FIELD_SHAPE = (upi.Field.X_MAX, upi.Field.Y_MAX, 6)
+    TUMO_SHAPE = (2, 5)
+    
     def __init__(self):
         self.player = upi.UpiPlayer()
-        self.goal = 30
 
-    def set_goal(self, goal):
-        self.goal = goal
-
-    def get_state(self):
+    def _get_state_impl(self, player):
         """
         ぷよぷよのフィールド、現在のツモ、次のツモを、ニューラルネットワークに入力できる形に変換する。
         """
         # フィールド
-        state_field = np.zeros(QNetwork.FIELD_SHAPE)
+        state_field = np.zeros(TokotonEnvironment.FIELD_SHAPE)
         for x in range(upi.Field.X_MAX):
             for y in range(upi.Field.Y_MAX):
-                puyo = self.player.positions[0].field.get_puyo(x, y)
+                puyo = self.player.positions[player].field.get_puyo(x, y)
                 if puyo != upi.Puyo.EMPTY and puyo != upi.Puyo.OJAMA:
                     state_field[x, y, puyo.value - 1] = 1
         # ツモ
-        state_curr_tumo = np.zeros(QNetwork.TUMO_SHAPE)
-        state_next_tumo = np.zeros(QNetwork.TUMO_SHAPE)
-        curr_tumo = self.player.common_info.tumo_pool[(self.player.positions[0].tumo_index + 0) % 128]
-        next_tumo = self.player.common_info.tumo_pool[(self.player.positions[0].tumo_index + 1) % 128]
+        state_curr_tumo = np.zeros(TokotonEnvironment.TUMO_SHAPE)
+        state_next_tumo = np.zeros(TokotonEnvironment.TUMO_SHAPE)
+        curr_tumo = self.player.common_info.tumo_pool[(self.player.positions[player].tumo_index + 0) % 128]
+        next_tumo = self.player.common_info.tumo_pool[(self.player.positions[player].tumo_index + 1) % 128]
         state_curr_tumo[0, curr_tumo.pivot.value - 1] = 1
         state_curr_tumo[1, curr_tumo.child.value - 1] = 1
         state_next_tumo[0, next_tumo.pivot.value - 1] = 1
         state_next_tumo[1, next_tumo.child.value - 1] = 1
 
         # 全消し
-        state_all_clear = np.array(1 if self.player.positions[0].all_clear_flag else 0)
+        state_all_clear = np.array(1 if self.player.positions[player].all_clear_flag else 0)
         return [state_field[np.newaxis, :, :, :], state_curr_tumo[np.newaxis, :, :], state_next_tumo[np.newaxis, :, :], state_all_clear[np.newaxis]]
+
+    @abstractmethod
+    def get_state(self):
+        pass
 
     def action_to_move(self, action):
         """
@@ -189,14 +189,54 @@ class TokotonEnvironment:
 
         return upi.Move.none()
 
+    @abstractmethod
     def success(self):
-        ojama = -(self.player.common_info.future_ojama.unfixed_ojama + self.player.common_info.future_ojama.fixed_ojama)
-        return ojama >= self.goal
+        pass
 
     def get_reward(self, done):
         if not done:
             return 0
         return 1 if self.success() else -1
+
+    @abstractmethod
+    def step(self, action):
+        pass
+
+    def reset(self):
+        """
+        環境を初期化する。
+        """
+        self.player.positions[0] = upi.Position()
+        self.player.positions[1] = upi.Position()
+        self.player.common_info = upi.PositionsCommonInfo()
+        self.player.common_info.randomize_tumo()
+        return self.get_state()
+    
+    def render(self):
+        """
+        環境を描画する。
+        """
+        self.player.positions[0].field.pretty_print()
+        print('unfixed:', self.player.common_info.future_ojama.unfixed_ojama)
+        print('fixed:', self.player.common_info.future_ojama.fixed_ojama)
+
+class TokotonEnvironment(PuyoEnvironmentBase):
+    """
+    とこぷよ学習環境。
+    """
+    def __init__(self):
+        super().__init__()
+        self.goal = 30
+
+    def set_goal(self, goal):
+        self.goal = goal
+
+    def get_state(self):
+        return self._get_state_impl(0)
+
+    def success(self):
+        ojama = -(self.player.common_info.future_ojama.unfixed_ojama + self.player.common_info.future_ojama.fixed_ojama)
+        return ojama >= self.goal
 
     def step(self, action):
         """
@@ -217,22 +257,53 @@ class TokotonEnvironment:
             state = None
         return state, reward, done
 
-    def reset(self):
+
+class BattleEnvironment(PuyoEnvironmentBase):
+    """
+    対戦ぷよ学習環境。
+    """
+
+    def __init__(self):
+        super().__init__()
+
+    def get_state(self):
         """
-        環境を初期化する。
+        ぷよぷよのフィールド、現在のツモ、次のツモを、ニューラルネットワークに入力できる形に変換する。
         """
-        self.player.positions[0] = upi.Position()
-        self.player.common_info = upi.PositionsCommonInfo()
-        self.player.common_info.randomize_tumo()
-        return self.get_state()
-    
-    def render(self):
+        state_0 = self._get_state_impl(0)
+        state_1 = self._get_state_impl(1)
+        
+        # おじゃまぷよ
+        state_ojama = np.zeros(3)
+        state_ojama[0] = self.player.common_info.future_ojama.fixed_ojama / 1000
+        state_ojama[1] = self.player.common_info.future_ojama.unfixed_ojama / 1000
+        state_ojama[2] = self.player.common_info.future_ojama.time_until_fall_ojama / 1000
+        return state_0 + state_1 + state_ojama
+
+    def success(self):        
+        return self.positions[1].field.is_death()
+
+    def step(self, action):
         """
-        環境を描画する。
+        actionを基にstateを次の状態に進める。
         """
-        self.player.positions[0].field.pretty_print()
-        print('unfixed:', self.player.common_info.future_ojama.unfixed_ojama)
-        print('fixed:', self.player.common_info.future_ojama.fixed_ojama)
+        # 死んでいる局面でこのメソッドが呼び出されるはずがない。
+        assert not self.player.positions[0].field.is_death()
+        assert not self.player.positions[1].field.is_death()
+        move = self.action_to_move(action)
+        if not move.is_none():
+            self.player.positions[0].do_move(move, self.player.common_info)
+
+
+            state = self.get_state()            
+            done = self.player.positions[0].field.is_death() or self.success()
+        else:
+            # おけないところに置こうとしたら負け。
+            done = True
+        reward = self.get_reward(done)
+        if done:
+            state = None
+        return state, reward, done
 
 
 class Memory:
@@ -355,7 +426,7 @@ class Actor:
         if epsilon <= np.random.uniform(0, 1):
             return np.argmax(main_qn.model.predict(state)[0])
         else:
-            return np.random.choice(np.arange(main_qn.ACTION_SIZE))
+            return np.random.choice(np.arange(TokotonEnvironment.ACTION_SIZE))
 
 
 class TensorBoardLogger():
@@ -411,7 +482,7 @@ def run(id, load_path):
         state = env.get_state()
         done = False
         while not done:
-            action = np.random.randint(0, QNetwork.ACTION_SIZE)
+            action = np.random.randint(0, TokotonEnvironment.ACTION_SIZE)
             next_state, reward, done = env.step(action)
             experience = (state, action, reward, next_state)
             memory.add(experience, gamma, main_qn, target_qn)
@@ -423,7 +494,7 @@ def run(id, load_path):
     for episode in range(num_episodes):        
         env.reset()
         # 最初の一回は適当に行動する
-        state, _, done, = env.step(np.random.randint(0, QNetwork.ACTION_SIZE))
+        state, _, done, = env.step(np.random.randint(0, TokotonEnvironment.ACTION_SIZE))
 
         # 1試行のループ
         while not done:
@@ -469,6 +540,6 @@ if __name__ == "__main__":
     run(args.id, args.load_path)
     # prof = LineProfiler()
     # prof.add_function(run)
-    # prof.add_function(QNetwork.make_teacher_label)
+    # prof.add_function(TokotonEnvironment.make_teacher_label)
     # prof.runcall(run)
     # prof.print_stats()
