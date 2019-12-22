@@ -107,6 +107,17 @@ class Move:
     def is_none(self):
         return self.pivot_sq == (0, 0) and self.child_sq == (0, 0)
 
+def pretty_print(string):
+    color = ('\033[30m', '\033[31m', '\033[32m', '\033[34m', '\033[35m', '\033[33m', '\033[37m')
+    END = '\033[0m'
+    for p in result:
+        id = "ergbpyo".find(p)
+        if id >= 0:
+            print(color[id] + p + END, end='')
+        else:
+            print(p, end='')
+    print('')
+
 class Field:
     """
     盤面。ツモを配置する空間。
@@ -155,21 +166,6 @@ class Field:
         座標がフィールドの見えている範囲内にあるかどうかを判定する。
         """
         return x >= 0 and x < Field.X_MAX and y >= 0 and y < Field.Y_MAX - 1
-
-    def pretty_print(self):
-        """
-        Fieldインスタンスを色付きで見やすく標準出力に表示する。
-        """
-        color = ('\033[30m', '\033[31m', '\033[32m', '\033[34m', '\033[35m', '\033[33m', '\033[37m')
-        END = '\033[0m'
-        pretty_string = self.pretty()
-        for p in pretty_string:
-            id = "ergbpyo".find(p)
-            if id >= 0:
-                print(color[id] + p + END, end='')
-            else:
-                print(p, end='')
-        print('')
 
     def pretty(self):
         """
@@ -388,7 +384,7 @@ class Position:
         """
         tumo = positions_common.tumo_pool[self.tumo_index]
         rule = positions_common.rule
-        future_ojama = positions_common.future_ojama
+        future_ojama = positions_common.future_ojama        
         self.tumo_index = (self.tumo_index + 1) % 128
         p = move.pivot_sq
         c = move.child_sq
@@ -397,10 +393,11 @@ class Position:
         chain_num, score = self.field.chain()
         # 着手にかかるフレーム数を計算
         drop_frame = max(12 - p[1], 12 - c[1]) * rule.fall_time
-        frame = (drop_frame + max(abs(2 - p[0]), abs(2 - c[0]))
-                + rule.set_time * 2 if move.is_tigiri else rule.set_time
-                + rule.chain_time * chain_num
-                + rule.next_time)
+        frame = (drop_frame + max(abs(2 - p[0]), abs(2 - c[0]))          # ぷよの移動にかかる時間
+                + rule.set_time * 2 if move.is_tigiri else rule.set_time # ちぎりにかかる時間 + 硬直時間
+                + rule.chain_time * chain_num                            # 連鎖時間
+                + rule.next_time)                                        # つぎのぷよが操作可能になるまでの時間
+        positions_common.time -= frame
         ojama = 0
         if chain_num > 0:
             if self.all_clear_flag:
@@ -476,14 +473,26 @@ class PositionsCommonInfo:
         ルール。
     future_ojama : FutureOjama
         予告ぷよ。
+    time : int
+        残り時間。この時間を過ぎる着手を行った場合は手番が相手に移る。思考用パラメータ。
     """
     def __init__(self):
         self.tumo_pool = [Tumo(Puyo(i % 4 + 1), Puyo((i + 1) % 4 + 1)) for i in range(128)] # 適当に初期化
         self.rule = Rule()
         self.future_ojama = FutureOjama()
+        self.time = 0
 
     def randomize_tumo(self):        
         self.tumo_pool = [Tumo(Puyo(1 + np.random.randint(4)), Puyo(1 + np.random.randint(4))) for i in range(128)] # 適当に初期化
+
+    def inverse(self):
+        """
+        手番を入れ替えたときに見える情報となるように書き換える。
+        """
+        self.time = -self.time
+        self.future_ojama.fixed_ojama = -self.future_ojama.fixed_ojama
+        self.future_ojama.unfixed_ojama = -self.future_ojama.unfixed_ojama
+        self.future_ojama.time_until_fall_ojama = -self.future_ojama.time_until_fall_ojama
 
 def generate_moves(pos, tumo_pool):
     """
@@ -690,6 +699,19 @@ class UpiPlayer:
         # 特に何もしない
         pass
     
+    def render(self):
+        result = ''
+        for y in reversed(range(Field.Y_MAX)):
+            for x in range(Field.X_MAX):
+                result += self.positions[0].field.get_puyo(x, y).to_str()
+            result += '|'
+            for x in range(Field.X_MAX):
+                result += self.positions[1].field.get_puyo(x, y).to_str()
+            result += '\r\n'
+            if y == 12:
+                result += '------|------\r\n'
+        pretty_print(result)
+        
     def loop(self):
         token = ""    
         while True:

@@ -335,3 +335,6 @@ ASALocalRun/
 
 ### VisualStudioCode ###
 .vscode/*
+
+weights/*
+logs/*
