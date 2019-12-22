@@ -4,7 +4,6 @@ from keras.models import Sequential, Model
 from keras.utils import plot_model
 from keras.callbacks import TensorBoard
 from collections import deque
-from line_profiler import LineProfiler
 from datetime import datetime
 from keras import backend as K
 import tensorflow as tf
