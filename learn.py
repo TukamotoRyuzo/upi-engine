@@ -1,5 +1,5 @@
 from keras.layers import Activation, Conv2D, Dense, Input, Flatten, MaxPooling2D, concatenate, Lambda
-from keras.optimizers import Adam
+from keras.optimizers import Adam, RMSprop
 from keras.models import Sequential, Model
 from keras.utils import plot_model
 from keras.callbacks import TensorBoard
@@ -46,15 +46,15 @@ class QNetwork():
         field = Input(shape=QNetwork.FIELD_SHAPE, name='field')
         tumo_curr = Input(shape=QNetwork.TUMO_SHAPE, name='tumo_curr')
         tumo_next = Input(shape=QNetwork.TUMO_SHAPE, name='tumo_next')
+        all_clear_flag = Input(shape=(1,), name='all_clear_flag')
 
         # ネットワークを定義する
-        x = Conv2D(64, 3, activation='relu', padding='same')(field)
-        x = Conv2D(64, 3, activation='relu', padding='same')(x)
-        #x = MaxPooling2D()(x)
+        x = Conv2D(128, 5, activation='relu', padding='same')(field)
+        x = Conv2D(128, 3, activation='relu', padding='same')(x)
         x = Flatten()(x)
         y = Flatten()(tumo_curr)
         z = Flatten()(tumo_next)
-        all = concatenate([x, y, z])
+        all = concatenate([x, y, z, all_clear_flag])
         
         # dueling network
         # 状態価値
@@ -68,8 +68,8 @@ class QNetwork():
         y = concatenate([v,adv])
         output = Lambda(lambda a: K.expand_dims(a[:, 0], -1) + a[:, 1:] - tf.stop_gradient(K.mean(a[:,1:],keepdims=True)), output_shape=(self.ACTION_SIZE,))(y)
         #output = Dense(self.ACTION_SIZE, activation='linear', name='output')(all)
-        self.model = Model(inputs=[field, tumo_curr, tumo_next], outputs=output)
-        self.model.compile(optimizer=Adam(lr=learning_rate), loss=huberloss)
+        self.model = Model(inputs=[field, tumo_curr, tumo_next, all_clear_flag], outputs=output)
+        self.model.compile(optimizer=RMSprop(lr=learning_rate), loss=huberloss)
         #self.model.compile(optimizer=Adam(lr=learning_rate), loss='mse')
         self.callbacks = callbacks
         
@@ -77,12 +77,14 @@ class QNetwork():
         field = np.zeros(self.get_batch_field_shape(batch_size))
         tumo_curr = np.zeros(self.get_batch_tumo_shape(batch_size))
         tumo_next = np.zeros(self.get_batch_tumo_shape(batch_size))
+        all_clear_flag = np.zeros((batch_size, 1))
         targets = np.zeros((batch_size, QNetwork.ACTION_SIZE))
         errors = np.zeros(batch_size)
         for i, (_, (state_b, action_b, reward_b, next_state_b)) in enumerate(mini_batch):
             field[i] = state_b[0]
             tumo_curr[i] = state_b[1]
             tumo_next[i] = state_b[2]
+            all_clear_flag[i] = state_b[3]
             target = reward_b
             if next_state_b is not None:
                 # Double DQN: 今の重みwにより選ばれた行動を、直前の重みw'で評価する
@@ -91,9 +93,8 @@ class QNetwork():
                 target = reward_b + gamma * target_qn.model.predict(next_state_b)[0][next_action]
             targets[i] = self.model.predict(state_b)[0]
             errors[i] = abs(targets[i][action_b] - target)
-            targets[i][action_b] = target
-            
-        return [field, tumo_curr, tumo_next], targets, errors
+            targets[i][action_b] = target            
+        return [field, tumo_curr, tumo_next, all_clear_flag], targets, errors
 
     # 重みの学習
     def replay(self, memory, batch_size, gamma, target_qn):
@@ -137,7 +138,10 @@ class TokotonEnvironment:
         state_curr_tumo[1, curr_tumo.child.value - 1] = 1
         state_next_tumo[0, next_tumo.pivot.value - 1] = 1
         state_next_tumo[1, next_tumo.child.value - 1] = 1
-        return [state_field[np.newaxis, :, :, :], state_curr_tumo[np.newaxis, :, :], state_next_tumo[np.newaxis, :, :]]
+
+        # 全消し
+        state_all_clear = np.array(1 if self.player.positions[0].all_clear_flag else 0)
+        return [state_field[np.newaxis, :, :, :], state_curr_tumo[np.newaxis, :, :], state_next_tumo[np.newaxis, :, :], state_all_clear[np.newaxis]]
 
     def action_to_move(self, action):
         """
@@ -250,7 +254,6 @@ class Memory:
 
     def update(self, idx, error):
         pass
-
 
 
 class SumTree:
@@ -373,7 +376,7 @@ class TensorBoardLogger():
 def run(id, load_path):    
     num_episodes = 200000 # 総試行回数
     gamma = 0.9 # 割引係数
-    memory_size = 65536
+    memory_size = 1024
     batch_size = 4
     copy_target_freq = 1000
     learning_rate = 0.0001
