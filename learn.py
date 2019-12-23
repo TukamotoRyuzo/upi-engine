@@ -233,7 +233,8 @@ class PuyoGym(ABC):
         state_next_tumo[1, next_tumo.child.value - 1] = 1
 
         # 全消し
-        state_all_clear = np.array(1 if position.all_clear_flag else 0)
+        state_all_clear = np.zeros(1)
+        state_all_clear[0] = 1 if position.all_clear_flag else 0
         return [state_field[np.newaxis, :, :, :], state_curr_tumo[np.newaxis, :, :], state_next_tumo[np.newaxis, :, :], state_all_clear[np.newaxis]]
 
     def action_to_move(self, action, position, tumo_pool):
@@ -392,6 +393,7 @@ class BattleEnvironment(PuyoGym):
 
             # 死んだら負け
             if self.player.positions[0].field.is_death():
+                print('my death')
                 return None, -1, True
 
             # 相手の番
@@ -406,16 +408,20 @@ class BattleEnvironment(PuyoGym):
 
                         # 相手が死んだら勝ち
                         if self.player.positions[1].field.is_death():
+                            print('your death')
                             return None, 1, True
                     else:
                         # 敵の反則手
+                        print('your illegal move')
                         return None, 1, True
 
                 # 手番入れ替え
                 self.player.common_info.inverse()
         else:
             # 反則負け
+            print('my illegal move')
             return None, -1, True
+
         state = self.get_state()
         return state, 0, False
 
@@ -572,7 +578,7 @@ def run(id, load_path):
     gamma = 0.9 # 割引係数
     memory_size = 1024
     batch_size = 4
-    copy_target_freq = 1000
+    copy_target_freq = 10000
     learning_rate = 0.0001
     num_consecutive_iterations = 20
     total_reward_vec = np.zeros(num_consecutive_iterations)  # 各試行の報酬を格納
@@ -609,6 +615,8 @@ def run(id, load_path):
         state = env.get_state()
         done = False
         while not done:
+            #env.render()
+            #a = input()                        
             action = np.random.randint(0, PuyoGym.ACTION_SIZE)
             next_state, reward, done = env.step(action)
             experience = (state, action, reward, next_state)
@@ -625,8 +633,8 @@ def run(id, load_path):
 
         # 1試行のループ
         while not done:
-            env.render()
-            a = input()
+            # env.render()
+            # a = input()
             # 時刻tでの行動を決定する
             action = actor.get_action(state, episode, main_qn)
             next_state, reward, done = env.step(action)
@@ -644,10 +652,13 @@ def run(id, load_path):
             main_qn.replay(memory, batch_size, gamma, target_qn)
 
         # 1施行終了時の処理
-        ojama = -(env.player.common_info.future_ojama.unfixed_ojama + env.player.common_info.future_ojama.fixed_ojama)                
-        total_reward_vec = np.hstack((total_reward_vec[1:], ojama))
-        print(f'{episode} Episode finished after {step} steps and {ojama} ojama mean {total_reward_vec.mean()}')
-        tensorboard.write(step, ojama, episode)
+        ojama = -(env.player.common_info.future_ojama.unfixed_ojama + env.player.common_info.future_ojama.fixed_ojama)
+        #total_reward_vec = np.hstack((total_reward_vec[1:], ojama))
+        total_reward_vec = np.hstack((total_reward_vec[1:], reward))
+        #print(f'{episode} Episode finished after {step} steps and {ojama} ojama mean {total_reward_vec.mean()}')
+        print(f'{episode} Episode finished after {step} steps and {reward} reward mean {total_reward_vec.mean()}')
+        #tensorboard.write(step, ojama, episode)
+        tensorboard.write(reward, ojama, episode)
 
          # 複数施行の平均報酬で終了を判断
         # if total_reward_vec.mean() >= env.goal * 0.9:

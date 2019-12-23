@@ -107,7 +107,7 @@ class Move:
     def is_none(self):
         return self.pivot_sq == (0, 0) and self.child_sq == (0, 0)
 
-def pretty_print(string):
+def pretty_print(result):
     color = ('\033[30m', '\033[31m', '\033[32m', '\033[34m', '\033[35m', '\033[33m', '\033[37m')
     END = '\033[0m'
     for p in result:
@@ -711,7 +711,7 @@ class UpiPlayer:
             if y == 12:
                 result += '------|------\r\n'
         pretty_print(result)
-        
+
     def loop(self):
         token = ""    
         while True:
