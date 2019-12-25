@@ -391,12 +391,14 @@ class Position:
         self.field.set_puyo(p[0], p[1], tumo.pivot)
         self.field.set_puyo(c[0], c[1], tumo.child)
         chain_num, score = self.field.chain()
+        
         # 着手にかかるフレーム数を計算
-        drop_frame = max(12 - p[1], 12 - c[1]) * rule.fall_time
-        frame = (drop_frame + max(abs(2 - p[0]), abs(2 - c[0]))          # ぷよの移動にかかる時間
-                + rule.set_time * 2 if move.is_tigiri else rule.set_time # ちぎりにかかる時間 + 硬直時間
-                + rule.chain_time * chain_num                            # 連鎖時間
-                + rule.next_time)                                        # つぎのぷよが操作可能になるまでの時間
+        drop_frame = max(12 - p[1], 12 - c[1]) * rule.fall_time # 下移動
+        move_frame = max(abs(2 - p[0]), abs(2 - c[0])) * rule.fall_time # 横移動
+        freeze_frame = (rule.set_time * 2) if move.is_tigiri else rule.set_time # ちぎりにかかる時間 + 硬直時間
+        chain_frame = rule.chain_time * chain_num # 連鎖時間
+        next_frame = rule.next_time # つぎのぷよが操作可能になるまでの時間
+        frame = drop_frame + move_frame + freeze_frame + chain_frame + next_frame
         positions_common.time -= frame
         ojama = 0
         if chain_num > 0:

@@ -11,7 +11,7 @@ class ModelStab:
         self.called = False
     def predict(self, state):
         self.called = True
-        return [list(range(22))]
+        return [list(reversed(range(22)))]
 
 class QNetworkStab:
     ACTION_SIZE = 22
@@ -44,5 +44,31 @@ def test_step():
     stab = QNetworkStab()
     env = learn.BattleEnvironment(stab)
     action = 0
-    next_state, reward, done = env.step(action)
+    next_state, reward, done = env.step(action)    
+    tumo = env.player.common_info.tumo_pool[0]
+    assert next_state[0][0][0][0][tumo.pivot.value - 1] == 1
+    assert next_state[0][0][0][1][tumo.child.value - 1] == 1
+    tumo = env.player.common_info.tumo_pool[1]
+    assert next_state[1][0][0][tumo.pivot.value - 1] == 1
+    assert next_state[1][0][1][tumo.child.value - 1] == 1
+    tumo = env.player.common_info.tumo_pool[2]
+    assert next_state[2][0][0][tumo.pivot.value - 1] == 1
+    assert next_state[2][0][1][tumo.child.value - 1] == 1
+    assert next_state[3][0][0] == 0    
+    tumo = env.player.common_info.tumo_pool[0]
+    assert next_state[4][0][0][0][tumo.pivot.value - 1] == 1
+    assert next_state[4][0][0][1][tumo.child.value - 1] == 1
+    tumo = env.player.common_info.tumo_pool[1]
+    assert next_state[4][0][0][2][tumo.pivot.value - 1] == 1
+    assert next_state[4][0][0][3][tumo.child.value - 1] == 1
+    tumo = env.player.common_info.tumo_pool[2]
+    assert next_state[5][0][0][tumo.pivot.value - 1] == 1
+    assert next_state[5][0][1][tumo.child.value - 1] == 1
+    tumo = env.player.common_info.tumo_pool[3]
+    assert next_state[6][0][0][tumo.pivot.value - 1] == 1
+    assert next_state[6][0][1][tumo.child.value - 1] == 1
+    assert next_state[7][0][0] == 0
+    assert next_state[8][0][0] == 0
+    assert next_state[8][0][1] == 0
+    assert next_state[8][0][2] == 0
     
