@@ -10,7 +10,7 @@ class ModelStab:
         self.called = False
     def predict(self, state):
         self.called = True
-        return [list(range(22))]
+        return [np.array(range(22))]
 
 class QNetworkStab:
     ACTION_SIZE = 22

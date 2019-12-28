@@ -399,21 +399,21 @@ class BattleEnvironment(PuyoGym):
             # 相手の番
             if self.player.common_info.time < 0:
                 self.player.common_info.inverse()
+                move_index = 0
                 while self.player.common_info.time >= 0:
                     state = self._get_state_battle(self.player.positions[1], self.player.positions[0], self.player.common_info)
-                    enemy_action = Actor().get_action(state, 100000, self.target_net)
+                    enemy_action = Actor().get_action(state, 100000, self.target_net, move_index)
                     enemy_move = self.action_to_move(enemy_action, self.player.positions[1], self.player.common_info.tumo_pool)
                     if not move.is_none():
                         self.player.positions[1].do_move(enemy_move, self.player.common_info)
-
-                        # 相手が死んだら勝ち
                         if self.player.positions[1].field.is_death():
                             print('your death')
                             return None, 1, True
+                        move_index = 0
                     else:
                         # 敵の反則手
-                        print('your illegal move')
-                        return None, 1, True
+                        move_index += 1
+                        assert move_index < 22
 
                 # 手番入れ替え
                 self.player.common_info.inverse()
@@ -550,10 +550,12 @@ class PERMemory:   # stored as ( s, a, r, s_ ) in SumTree
 
 
 class Actor:
-    def get_action(self, state, episode, main_qn):
+    def get_action(self, state, episode, main_qn, index=0):
         epsilon = 0.001 + 0.9 / (1.0 + episode)
         if epsilon <= np.random.uniform(0, 1):
-            return np.argmax(main_qn.model.predict(state)[0])
+            logit = main_qn.model.predict(state)[0]
+            sort = np.argsort(-logit)
+            return sort[index]
         else:
             return np.random.choice(np.arange(PuyoGym.ACTION_SIZE))
 
@@ -584,7 +586,7 @@ def run(id, load_path):
     total_reward_vec = np.zeros(num_consecutive_iterations)  # 各試行の報酬を格納
 
     # tensorboardによる可視化
-    log_dir = f'.\\logs\\{id}-gamma{gamma}_memory{memory_size}_batch{batch_size}_update{copy_target_freq}_eta{learning_rate}'
+    log_dir = f'.\\logs\\{id}-gamma{gamma}_memory{memory_size}_batch{batch_size}_update{copy_target_freq}_eta{learning_rate}-{datetime.utcnow().strftime("%Y%m%d%H%M%S")}'
     tensorboard = TensorBoardLogger(log_dir=log_dir)    
     save_weight_path = f'weights/{id}'
 
@@ -644,11 +646,6 @@ def run(id, load_path):
             # 状態更新
             state = next_state 
             step += 1
-
-            if step % copy_target_freq == 0:
-                target_qn.model.set_weights(main_qn.model.get_weights())
-                target_qn.model.save_weights(save_weight_path)
-
             main_qn.replay(memory, batch_size, gamma, target_qn)
 
         # 1施行終了時の処理
@@ -661,12 +658,10 @@ def run(id, load_path):
         tensorboard.write(reward, ojama, episode)
 
          # 複数施行の平均報酬で終了を判断
-        # if total_reward_vec.mean() >= env.goal * 0.9:
-        #     print('Episode %d train agent successfuly!' % episode)
-        #     env.set_goal(env.goal + 10)
-
-    target_qn.model.save_weights('weights/latest2')
-
+        if total_reward_vec.mean() >= 0.1:
+            print('Episode %d train agent successfuly!' % episode)
+            target_qn.model.set_weights(main_qn.model.get_weights())
+            target_qn.model.save_weights(save_weight_path)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

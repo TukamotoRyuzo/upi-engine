@@ -356,7 +356,7 @@ class Position:
                     self.field.set_puyo(x, floors[x], Puyo.OJAMA)
                     floors[x] += 1
                 ojama -= 1
-                self.ojama_index = self.ojama_index + 1 % 128
+                self.ojama_index = (self.ojama_index + 1) % 128
         # ここまで来ると確定予告ぷよは6個未満になっているはず。
         assert ojama < 6
         if ojama > 0:
@@ -366,7 +366,7 @@ class Position:
                 t = positions_common.tumo_pool[self.ojama_index]
                 r = (t.pivot.value + t.child.value) % 6
                 v[x], v[r] = v[r], v[x]
-                self.ojama_index = self.ojama_index + 1 % 128
+                self.ojama_index = (self.ojama_index + 1) % 128
             for x in range(ojama):
                 if floors[v[x]] < Field.Y_MAX:
                     self.field.set_puyo(v[x], floors[v[x]], Puyo.OJAMA)
