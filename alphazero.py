@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from tqdm import tqdm
 
 class AlphaZeroFramework:
     """
@@ -40,15 +41,18 @@ class AlphaZeroFramework:
         num_episodes: int
             自己対戦局数。
         """
-        for episode in range(num_episodes):   
+        for episode in tqdm(range(num_episodes)):
             self.env.reset()
             state = self.env.get_state()
             done = False
+            experiences = []
             while not done:
                 action = self.actor.get_action(self.env, self.new_network)
                 state, reward, done = self.env.step(action)
                 experience = (state, action, reward)
-                self.memory.add(experience, )
+                experiences.append(experience)
+            #if self.env.winner == 0:
+            #self.memory.add(experience, )
 
     def _learn(self, batch_size, epoch):
         """
@@ -62,7 +66,7 @@ class AlphaZeroFramework:
         """
         win = 0
         lose = 0        
-        for num in range(num_battle):
+        for num in tqdm(range(num_battle)):
             env.reset()
             state = env.get_state()
             done = False
